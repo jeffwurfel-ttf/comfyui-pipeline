@@ -1,0 +1,238 @@
+# ComfyUI Model Manifest
+# 
+# This file defines all models required for the pipeline.
+# The model manager will download missing models on startup.
+#
+# Supported sources:
+#   - huggingface: HuggingFace Hub (repo_id/filename)
+#   - civitai: CivitAI model ID
+#   - url: Direct download URL
+#
+# To add a model:
+#   1. Add entry below with name, source, destination
+#   2. Run: python models/manager.py download
+#   3. Commit updated manifest (checksums auto-added)
+
+version: "1.0"
+
+# =============================================================================
+# Checkpoints (Main Models)
+# =============================================================================
+checkpoints:
+  # SDXL Base - Required for most workflows
+  - name: "SDXL 1.0 Base"
+    enabled: true
+    source: huggingface
+    repo: "stabilityai/stable-diffusion-xl-base-1.0"
+    filename: "sd_xl_base_1.0.safetensors"
+    dest: "checkpoints/sd_xl_base_1.0.safetensors"
+    size_gb: 6.94
+    sha256: null  # Auto-populated on first download
+
+  # SDXL Refiner - Optional, for two-stage generation
+  - name: "SDXL 1.0 Refiner"
+    enabled: false  # Enable if needed
+    source: huggingface
+    repo: "stabilityai/stable-diffusion-xl-refiner-1.0"
+    filename: "sd_xl_refiner_1.0.safetensors"
+    dest: "checkpoints/sd_xl_refiner_1.0.safetensors"
+    size_gb: 6.08
+    sha256: null
+
+# =============================================================================
+# Diffusion Models (Flux, etc. - loaded via UNETLoader)
+# =============================================================================
+diffusion_models:
+  - name: "Flux.1 Dev fp8"
+    enabled: true
+    source: huggingface
+    repo: "Comfy-Org/flux1-dev"
+    filename: "flux1-dev-fp8.safetensors"
+    dest: "diffusion_models/flux1-dev-fp8.safetensors"
+    size_gb: 11.9
+    sha256: null
+
+# =============================================================================
+# VAE (Variational Autoencoders)
+# =============================================================================
+vae:
+  - name: "SDXL VAE"
+    enabled: true
+    source: huggingface
+    repo: "stabilityai/sdxl-vae"
+    filename: "sdxl_vae.safetensors"
+    dest: "vae/sdxl_vae.safetensors"
+    size_gb: 0.32
+    sha256: null
+
+  - name: "SD 1.5 VAE (ft-mse)"
+    enabled: false
+    source: huggingface
+    repo: "stabilityai/sd-vae-ft-mse-original"
+    filename: "vae-ft-mse-840000-ema-pruned.safetensors"
+    dest: "vae/vae-ft-mse-840000-ema-pruned.safetensors"
+    size_gb: 0.32
+    sha256: null
+
+  - name: "Flux VAE (ae)"
+    enabled: true
+    source: huggingface
+    repo: "black-forest-labs/FLUX.1-dev"
+    filename: "ae.safetensors"
+    dest: "vae/ae.safetensors"
+    size_gb: 0.17
+    sha256: null
+
+# =============================================================================
+# ControlNet Models
+# =============================================================================
+controlnet:
+  # Canny Edge Detection
+  - name: "ControlNet SDXL Canny"
+    enabled: true
+    source: huggingface
+    repo: "diffusers/controlnet-canny-sdxl-1.0"
+    filename: "diffusion_pytorch_model.fp16.safetensors"
+    dest: "controlnet/controlnet-canny-sdxl-1.0.safetensors"
+    size_gb: 2.5
+    sha256: null
+
+  # Depth Estimation
+  - name: "ControlNet SDXL Depth"
+    enabled: true
+    source: huggingface
+    repo: "diffusers/controlnet-depth-sdxl-1.0"
+    filename: "diffusion_pytorch_model.fp16.safetensors"
+    dest: "controlnet/controlnet-depth-sdxl-1.0.safetensors"
+    size_gb: 2.5
+    sha256: null
+
+  # Lineart/Sketch - Critical for storyboard pipeline
+  - name: "ControlNet SDXL Lineart (MistoLine)"
+    enabled: true
+    source: huggingface
+    repo: "TheMistoAI/MistoLine"
+    filename: "mistoLine_rank256.safetensors"
+    dest: "controlnet/mistoLine_rank256.safetensors"
+    size_gb: 0.77
+    sha256: null
+
+# =============================================================================
+# CLIP Models
+# =============================================================================
+clip:
+  - name: "CLIP ViT-L (SD 1.5)"
+    enabled: false
+    source: huggingface
+    repo: "openai/clip-vit-large-patch14"
+    filename: "model.safetensors"
+    dest: "clip/clip-vit-large-patch14.safetensors"
+    size_gb: 0.89
+    sha256: null
+
+  - name: "T5-XXL fp8 (Flux)"
+    enabled: true
+    source: huggingface
+    repo: "comfyanonymous/flux_text_encoders"
+    filename: "t5xxl_fp8_e4m3fn.safetensors"
+    dest: "clip/t5xxl_fp8_e4m3fn.safetensors"
+    size_gb: 4.89
+    sha256: null
+
+  - name: "CLIP-L (Flux)"
+    enabled: true
+    source: huggingface
+    repo: "comfyanonymous/flux_text_encoders"
+    filename: "clip_l.safetensors"
+    dest: "clip/clip_l.safetensors"
+    size_gb: 0.24
+    sha256: null
+
+# =============================================================================
+# Upscale Models
+# =============================================================================
+upscale_models:
+  - name: "RealESRGAN x4plus"
+    enabled: true
+    source: url
+    url: "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth"
+    dest: "upscale_models/RealESRGAN_x4plus.pth"
+    size_gb: 0.064
+    sha256: null
+
+  - name: "RealESRGAN x4plus Anime"
+    enabled: true
+    source: url
+    url: "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth"
+    dest: "upscale_models/RealESRGAN_x4plus_anime_6B.pth"
+    size_gb: 0.017
+    sha256: null
+
+  - name: "4x-UltraSharp"
+    enabled: true
+    source: url
+    url: "https://huggingface.co/Kim2091/UltraSharp/resolve/main/4x-UltraSharp.pth"
+    dest: "upscale_models/4x-UltraSharp.pth"
+    size_gb: 0.064
+    sha256: null
+
+# =============================================================================
+# LoRA Models
+# =============================================================================
+loras:
+  # Add your LoRAs here
+  # - name: "Detail Tweaker XL"
+  #   enabled: true
+  #   source: civitai
+  #   model_id: 122359
+  #   dest: "loras/detail_tweaker_xl.safetensors"
+  #   size_gb: 0.37
+  #   sha256: null
+
+# =============================================================================
+# IP-Adapter Models (for reference image conditioning)
+# =============================================================================
+ipadapter:
+  - name: "IP-Adapter SDXL"
+    enabled: false
+    source: huggingface
+    repo: "h94/IP-Adapter"
+    filename: "sdxl_models/ip-adapter_sdxl.safetensors"
+    dest: "ipadapter/ip-adapter_sdxl.safetensors"
+    size_gb: 0.69
+    sha256: null
+
+  - name: "IP-Adapter SDXL Plus"
+    enabled: false
+    source: huggingface
+    repo: "h94/IP-Adapter"
+    filename: "sdxl_models/ip-adapter-plus_sdxl_vit-h.safetensors"
+    dest: "ipadapter/ip-adapter-plus_sdxl_vit-h.safetensors"
+    size_gb: 0.98
+    sha256: null
+
+# =============================================================================
+# CLIP Vision (for IP-Adapter)
+# =============================================================================
+clip_vision:
+  - name: "CLIP ViT-H (for IP-Adapter)"
+    enabled: false
+    source: huggingface
+    repo: "h94/IP-Adapter"
+    filename: "models/image_encoder/model.safetensors"
+    dest: "clip_vision/clip-vit-h.safetensors"
+    size_gb: 2.4
+    sha256: null
+
+# =============================================================================
+# Video Models (for AnimateDiff, etc.)
+# =============================================================================
+animatediff:
+  - name: "AnimateDiff v3 Motion Module"
+    enabled: false
+    source: huggingface
+    repo: "guoyww/animatediff-motion-adapter-v1-5-3"
+    filename: "diffusion_pytorch_model.safetensors"
+    dest: "animatediff_models/v3_sd15_mm.safetensors"
+    size_gb: 1.8
+    sha256: null

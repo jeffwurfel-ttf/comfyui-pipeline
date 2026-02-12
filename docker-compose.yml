@@ -1,0 +1,85 @@
+# ComfyUI Pipeline Service
+#
+# Usage:
+#   docker-compose up -d          # Start service
+#   docker-compose logs -f        # View logs
+#   docker-compose down           # Stop service
+#
+# First run - check models:
+#   docker-compose run --rm comfyui python /app/check_models.py
+#
+# Ports:
+#   8188: ComfyUI Web UI
+#   8189: API Wrapper (simplified REST API)
+
+services:
+  comfyui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: comfyui-pipeline:latest
+    container_name: comfyui-pipeline
+    
+    ports:
+      - "8188:8188"
+      - "8189:8189"
+    
+    environment:
+      # ComfyUI settings
+      - COMFYUI_LISTEN=0.0.0.0
+      - COMFYUI_PORT=8188
+      - COMFYUI_MODELS_PATH=/models
+      
+      # API wrapper settings
+      - WRAPPER_PORT=8189
+      - WORKFLOWS_DIR=/app/workflows
+      
+      # GPU settings
+      - NVIDIA_VISIBLE_DEVICES=all
+      - CUDA_VISIBLE_DEVICES=0
+      
+      # Performance
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      
+      # Optional: check models on startup
+      - CHECK_MODELS=false
+      
+      # Model download tokens (optional)
+      - CIVITAI_API_KEY=${CIVITAI_API_KEY:-}
+      - HF_TOKEN=${HF_TOKEN:-}
+    
+    volumes:
+      # Models - mount from host (single source of truth)
+      - H:/dev/AI_dev/models:/models
+      
+      # Workflows - mount for easy updates
+      - ./workflows:/app/workflows
+      
+      # Custom nodes - mount for easy development
+      - ./custom_nodes:/app/ComfyUI/custom_nodes
+      
+      # Output/Input directories
+      - ./output:/app/ComfyUI/output
+      - ./input:/app/ComfyUI/input
+    
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8189/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+networks:
+  default:
+    name: ai-network
+    external: true

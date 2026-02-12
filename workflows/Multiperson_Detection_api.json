@@ -1,0 +1,39 @@
+{
+    "1": {
+      "class_type": "VHS_LoadVideoPath",
+      "inputs": {
+        "video": "H:\\dev\\AI_dev\\ai-toolkit\\projects\\characterreplace\\walking.mp4",
+        "force_rate": 0,
+        "force_size": "Disabled",
+        "custom_width": 0,
+        "custom_height": 0,
+        "frame_load_cap": 0,
+        "skip_first_frames": 0,
+        "select_every_nth": 1
+      }
+    },
+    "2": {
+      "class_type": "OnnxDetectionModelLoader",
+      "inputs": {
+        "vitpose_model": "vitpose-l-wholebody.onnx",
+        "yolo_model": "yolov10m.onnx",
+        "onnx_device": "CUDAExecutionProvider"
+      }
+    },
+    "3": {
+      "class_type": "MultiPersonBboxDetector",
+      "inputs": {
+        "model": ["2", 0],
+        "images": ["1", 0],
+        "confidence_threshold": 0.5,
+        "max_people": 10
+      }
+    },
+    "4": {
+      "class_type": "SaveBboxesJSON",
+      "inputs": {
+        "bboxes_json": ["3", 0],
+        "filename_prefix": "walking_bboxes"
+      }
+    }
+  }

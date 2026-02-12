@@ -1,0 +1,97 @@
+# =============================================================================
+# ComfyUI Pipeline Service — Rocky Linux Deployment
+# =============================================================================
+#
+# Server: TTF-LAX-APIGW01 (10.10.210.9) or dedicated GPU node
+# Models: /data/comfyui/models (created by download_models_rocky.sh)
+#
+# Usage:
+#   docker-compose -f docker-compose.rocky.yaml up -d
+#   docker-compose -f docker-compose.rocky.yaml logs -f
+#   docker-compose -f docker-compose.rocky.yaml down
+#
+# Gateway Integration:
+#   The AI Gateway container reaches this via host.docker.internal:8188/8189
+#   Both containers must be on hosts where port forwarding works, OR
+#   join the same 'ai-network' and use container name 'comfyui-pipeline'.
+#
+# Prerequisites:
+#   1. NVIDIA Container Toolkit installed
+#   2. Models downloaded: ./download_models_rocky.sh
+#   3. Docker network created: docker network create ai-network
+# =============================================================================
+
+services:
+  comfyui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: comfyui-pipeline:latest
+    container_name: comfyui-pipeline
+
+    ports:
+      - "8188:8188"   # ComfyUI Web UI (direct access for debugging)
+      - "8189:8189"   # API Wrapper (gateway calls this)
+
+    environment:
+      # ComfyUI core
+      - COMFYUI_LISTEN=0.0.0.0
+      - COMFYUI_PORT=8188
+      - COMFYUI_MODELS_PATH=/models
+
+      # API wrapper
+      - WRAPPER_PORT=8189
+      - WORKFLOWS_DIR=/app/workflows
+
+      # GPU
+      - NVIDIA_VISIBLE_DEVICES=all
+      - CUDA_VISIBLE_DEVICES=0
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+      # Startup options
+      - CHECK_MODELS=true          # Verify models on boot (set false after confirmed)
+      - AUTODOWNLOAD_MODELS=false  # Don't auto-download in prod
+
+      # HuggingFace token (only needed if auto-downloading gated models)
+      - HF_TOKEN=${HF_TOKEN:-}
+
+    volumes:
+      # Models — single source of truth on Rocky host
+      - /data/comfyui/models:/models
+
+      # Workflows — mount for hot-reload without rebuild
+      - ./workflows:/app/workflows:ro
+
+      # Output/Input — for ComfyUI's file I/O
+      - /data/comfyui/output:/app/ComfyUI/output
+      - /data/comfyui/input:/app/ComfyUI/input
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8189/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s   # Wan models take time to index on first boot
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+# Join the shared network so the gateway can reach us by container name
+# Alternative: gateway uses host.docker.internal:8188/8189 (already configured)
+networks:
+  default:
+    name: ai-network
+    external: true
