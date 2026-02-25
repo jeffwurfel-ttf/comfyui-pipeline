@@ -105,6 +105,11 @@ RUN git clone https://github.com/daniabib/ComfyUI_ProPainter_Nodes.git
 # Motion Capture - GVHMR-based mocap extraction + SMPL export (Pipeline B)
 RUN git clone https://github.com/PozzettiAndrea/ComfyUI-MotionCapture.git
 
+# MotionCapture dependencies - required node packs
+RUN git clone https://github.com/PozzettiAndrea/ComfyUI-CameraPack.git
+RUN git clone https://github.com/PozzettiAndrea/ComfyUI-HyMotion.git
+RUN git clone https://github.com/PozzettiAndrea/ComfyUI-Env-Manager.git
+
 # ============================================================
 # CUSTOM NODES - TTF (internal nodes from repo)
 # ============================================================
@@ -173,12 +178,24 @@ RUN cd /app/ComfyUI/custom_nodes/ComfyUI_ProPainter_Nodes && \
 RUN cd /app/ComfyUI/custom_nodes/ComfyUI-MotionCapture && \
     pip install --no-cache-dir -r requirements.txt || true
 
-# pytorch3d - required by SAM3DObjects
+RUN cd /app/ComfyUI/custom_nodes/ComfyUI-CameraPack && \
+    pip install --no-cache-dir -r requirements.txt || true
+
+RUN cd /app/ComfyUI/custom_nodes/ComfyUI-HyMotion && \
+    pip install --no-cache-dir -r requirements.txt || true
+
+RUN cd /app/ComfyUI/custom_nodes/ComfyUI-Env-Manager && \
+    pip install --no-cache-dir -r requirements.txt || true
+
+# pytorch3d - required by SAM3DObjects + MotionCapture
 # Try prebuilt wheel first (fast), fall back to source build (slow but reliable)
+# MAX_JOBS=2 prevents OOM during CUDA kernel compilation
+ENV MAX_JOBS=2
 RUN pip install --no-cache-dir pytorch3d \
     -f https://miropsota.github.io/torch_packages_builder/pytorch3d.html \
     || pip install --no-cache-dir --no-build-isolation \
     "git+https://github.com/facebookresearch/pytorch3d.git"
+ENV MAX_JOBS=
 
 # Final numpy pin (in case any custom node pulled numpy 2.x)
 RUN pip install --no-cache-dir "numpy<2"
