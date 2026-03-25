@@ -1,0 +1,108 @@
+{
+  "1": {
+    "class_type": "VHS_LoadVideoPath",
+    "inputs": {
+      "video": "/app/ComfyUI/input/video.mp4",
+      "force_rate": 0,
+      "force_size": "Disabled",
+      "custom_width": 0,
+      "custom_height": 0,
+      "frame_load_cap": 0,
+      "skip_first_frames": 0,
+      "select_every_nth": 1
+    },
+    "_meta": {
+      "title": "Load Video Path"
+    }
+  },
+  "2": {
+    "class_type": "GetImageSizeAndCount",
+    "inputs": {
+      "image": ["1", 0]
+    },
+    "_meta": {
+      "title": "Get Image Size & Count"
+    }
+  },
+  "3": {
+    "class_type": "LoadTrackedBboxesForPerson",
+    "inputs": {
+      "json_file": "tracked_bboxes.json",
+      "person_id": 0,
+      "num_frames": 0
+    },
+    "_meta": {
+      "title": "Load Tracked Bboxes (Person)"
+    }
+  },
+  "4": {
+    "class_type": "DownloadAndLoadSAM2Model",
+    "inputs": {
+      "model": "sam2.1_hiera_base_plus.safetensors",
+      "segmentor": "video",
+      "device": "cuda",
+      "precision": "fp16"
+    },
+    "_meta": {
+      "title": "(Down)Load SAM2Model"
+    }
+  },
+  "5": {
+    "class_type": "Sam2Segmentation",
+    "inputs": {
+      "keep_model_loaded": false,
+      "individual_objects": false,
+      "sam2_model": ["4", 0],
+      "image": ["2", 0],
+      "bboxes": ["3", 0]
+    },
+    "_meta": {
+      "title": "Sam2Segmentation"
+    }
+  },
+  "6": {
+    "class_type": "GrowMaskWithBlur",
+    "inputs": {
+      "expand": 10,
+      "incremental_expandrate": 0,
+      "tapered_corners": true,
+      "flip_input": false,
+      "blur_radius": 0,
+      "lerp_alpha": 1,
+      "decay_factor": 1,
+      "fill_holes": false,
+      "mask": ["5", 0]
+    },
+    "_meta": {
+      "title": "Grow Mask With Blur"
+    }
+  },
+  "7": {
+    "class_type": "MaskToImage",
+    "inputs": {
+      "mask": ["6", 0]
+    },
+    "_meta": {
+      "title": "Mask to Image"
+    }
+  },
+  "8": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "frame_rate": 24,
+      "loop_count": 0,
+      "filename_prefix": "person_mask",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": true,
+      "images": ["7", 0]
+    },
+    "_meta": {
+      "title": "Save Mask Video"
+    }
+  }
+}

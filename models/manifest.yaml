@@ -1,238 +1,273 @@
-# ComfyUI Model Manifest
-# 
-# This file defines all models required for the pipeline.
-# The model manager will download missing models on startup.
+# =============================================================================
+# ComfyUI Model Manifest v2.1
+# =============================================================================
+# Single source of truth for all models required by the pipeline.
 #
-# Supported sources:
-#   - huggingface: HuggingFace Hub (repo_id/filename)
-#   - civitai: CivitAI model ID
-#   - url: Direct download URL
+# Used by:
+#   tools/comfy_models.sh    — download/verify/status on host
+#   tools/comfy_doctor.sh    — preflight validation
+#   models/manager.py        — container-side verification
 #
 # To add a model:
-#   1. Add entry below with name, source, destination
-#   2. Run: python models/manager.py download
-#   3. Commit updated manifest (checksums auto-added)
-
-version: "1.0"
-
+#   1. Add entry below with name, file, source, size_gb, workflows
+#   2. Run: ./tools/comfy_models.sh download
+#   3. Validate: ./tools/comfy_doctor.sh
+#
+# SYMLINK NOTE: ONNX detection models and text_encoders require container-internal
+# symlinks that are NOT on the host filesystem. comfy_doctor.sh --fix creates them.
+# They are ephemeral and must be recreated after every container rebuild.
 # =============================================================================
-# Checkpoints (Main Models)
-# =============================================================================
+
+version: "2.1"
+models_dir: "/mnt/ssd/comfyui-models"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHECKPOINTS (full model files loaded via CheckpointLoaderSimple)
+# ─────────────────────────────────────────────────────────────────────────────
 checkpoints:
-  # SDXL Base - Required for most workflows
   - name: "SDXL 1.0 Base"
-    enabled: true
-    source: huggingface
-    repo: "stabilityai/stable-diffusion-xl-base-1.0"
-    filename: "sd_xl_base_1.0.safetensors"
-    dest: "checkpoints/sd_xl_base_1.0.safetensors"
+    file: "checkpoints/sd_xl_base_1.0.safetensors"
+    source: { repo: "stabilityai/stable-diffusion-xl-base-1.0", file: "sd_xl_base_1.0.safetensors" }
     size_gb: 6.94
-    sha256: null  # Auto-populated on first download
+    workflows: [sdxl-txt2img]
 
-  # SDXL Refiner - Optional, for two-stage generation
-  - name: "SDXL 1.0 Refiner"
-    enabled: false  # Enable if needed
-    source: huggingface
-    repo: "stabilityai/stable-diffusion-xl-refiner-1.0"
-    filename: "sd_xl_refiner_1.0.safetensors"
-    dest: "checkpoints/sd_xl_refiner_1.0.safetensors"
-    size_gb: 6.08
-    sha256: null
-
-# =============================================================================
-# Diffusion Models (Flux, etc. - loaded via UNETLoader)
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# DIFFUSION MODELS (UNet/DiT loaded via UNETLoader or WanVideoModelLoader)
+# ─────────────────────────────────────────────────────────────────────────────
 diffusion_models:
   - name: "Flux.1 Dev fp8"
-    enabled: true
-    source: huggingface
-    repo: "Comfy-Org/flux1-dev"
-    filename: "flux1-dev-fp8.safetensors"
-    dest: "diffusion_models/flux1-dev-fp8.safetensors"
+    file: "diffusion_models/flux1-dev-fp8.safetensors"
+    source: { repo: "Comfy-Org/flux1-dev", file: "flux1-dev-fp8.safetensors" }
     size_gb: 11.9
-    sha256: null
+    workflows: [flux-txt2img]
 
-# =============================================================================
-# VAE (Variational Autoencoders)
-# =============================================================================
-vae:
-  - name: "SDXL VAE"
-    enabled: true
-    source: huggingface
-    repo: "stabilityai/sdxl-vae"
-    filename: "sdxl_vae.safetensors"
-    dest: "vae/sdxl_vae.safetensors"
-    size_gb: 0.32
-    sha256: null
+  - name: "Wan 2.1 T2V 14B fp8"
+    file: "diffusion_models/Wan2_1-T2V-14B_fp8_e4m3fn.safetensors"
+    source: { repo: "Kijai/WanVideo_comfy", file: "Wan2_1-T2V-14B_fp8_e4m3fn.safetensors" }
+    size_gb: 14.9
+    workflows: [wan-t2v]
 
-  - name: "SD 1.5 VAE (ft-mse)"
-    enabled: false
-    source: huggingface
-    repo: "stabilityai/sd-vae-ft-mse-original"
-    filename: "vae-ft-mse-840000-ema-pruned.safetensors"
-    dest: "vae/vae-ft-mse-840000-ema-pruned.safetensors"
-    size_gb: 0.32
-    sha256: null
+  - name: "Wan 2.1 I2V 14B 720P fp8"
+    file: "diffusion_models/Wan2_1-I2V-14B-720P_fp8_e4m3fn.safetensors"
+    source: { repo: "Kijai/WanVideo_comfy", file: "Wan2_1-I2V-14B-720P_fp8_e4m3fn.safetensors" }
+    size_gb: 14.0
+    workflows: [wan-i2v]
 
-  - name: "Flux VAE (ae)"
-    enabled: true
-    source: huggingface
-    repo: "black-forest-labs/FLUX.1-dev"
-    filename: "ae.safetensors"
-    dest: "vae/ae.safetensors"
-    size_gb: 0.17
-    sha256: null
+  - name: "Wan 2.1 FLF2V 14B 720P fp8"
+    file: "diffusion_models/Wan2_1-FLF2V-14B-720P_fp8_e4m3fn.safetensors"
+    source: { repo: "Kijai/WanVideo_comfy", file: "Wan2_1-FLF2V-14B-720P_fp8_e4m3fn.safetensors" }
+    size_gb: 14.0
+    workflows: [wan-flf2v]
 
-# =============================================================================
-# ControlNet Models
-# =============================================================================
-controlnet:
-  # Canny Edge Detection
-  - name: "ControlNet SDXL Canny"
-    enabled: true
-    source: huggingface
-    repo: "diffusers/controlnet-canny-sdxl-1.0"
-    filename: "diffusion_pytorch_model.fp16.safetensors"
-    dest: "controlnet/controlnet-canny-sdxl-1.0.safetensors"
-    size_gb: 2.5
-    sha256: null
+  - name: "Wan 2.2 Fun Inpaint 5B bf16"
+    file: "diffusion_models/wan2.2_fun_inpaint_5B_bf16.safetensors"
+    source: { repo: "Kijai/WanVideo_comfy", file: "wan2.2_fun_inpaint_5B_bf16.safetensors" }
+    size_gb: 10.0
+    workflows: [wan-fun-inpaint]
 
-  # Depth Estimation
-  - name: "ControlNet SDXL Depth"
-    enabled: true
-    source: huggingface
-    repo: "diffusers/controlnet-depth-sdxl-1.0"
-    filename: "diffusion_pytorch_model.fp16.safetensors"
-    dest: "controlnet/controlnet-depth-sdxl-1.0.safetensors"
-    size_gb: 2.5
-    sha256: null
+  - name: "Wan 2.2 Fun Inpaint 14B fp8 (low noise)"
+    file: "diffusion_models/wan2.2_fun_inpaint_low_noise_14B_fp8_scaled.safetensors"
+    source: { repo: "Kijai/WanVideo_comfy", file: "wan2.2_fun_inpaint_low_noise_14B_fp8_scaled.safetensors" }
+    size_gb: 14.0
+    workflows: [wan-fun-inpaint-14b]
 
-  # Lineart/Sketch - Critical for storyboard pipeline
-  - name: "ControlNet SDXL Lineart (MistoLine)"
-    enabled: true
-    source: huggingface
-    repo: "TheMistoAI/MistoLine"
-    filename: "mistoLine_rank256.safetensors"
-    dest: "controlnet/mistoLine_rank256.safetensors"
-    size_gb: 0.77
-    sha256: null
+  - name: "Wan 2.2 I2V A14B LOW bf16 (standard)"
+    file: "diffusion_models/Wan2_2-I2V-A14B-LOW_bf16.safetensors"
+    source: { repo: "Kijai/WanVideo_comfy", file: "Wan2_2-I2V-A14B-LOW_bf16.safetensors" }
+    size_gb: 28.0
+    workflows: [wan-i2v-22]
+    note: "Standard Wan 2.2 I2V. NOT compatible with WanVideoAnimateEmbeds (expects 36-channel input). Will fail with 'expected 36 channels, got 68' if used for charswap."
 
-# =============================================================================
-# CLIP Models
-# =============================================================================
+  - name: "Wan 2.2 Animate 14B fp8 (character swap)"
+    file: "diffusion_models/Wan22Animate/Wan2_2-Animate-14B_fp8_e4m3fn_scaled_KJ.safetensors"
+    source: { repo: "Kijai/WanVideo_comfy_fp8_scaled", file: "Wan22Animate/Wan2_2-Animate-14B_fp8_e4m3fn_scaled_KJ.safetensors" }
+    size_gb: 18.4
+    workflows: [wan-charswap]
+    note: "Fine-tuned 36-channel model required by WanVideoAnimateEmbeds. Stored in Wan22Animate/ subdirectory. This is the ONLY model compatible with TTFCharacterSwap."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TEXT ENCODERS / CLIP
+# ─────────────────────────────────────────────────────────────────────────────
 clip:
-  - name: "CLIP ViT-L (SD 1.5)"
-    enabled: false
-    source: huggingface
-    repo: "openai/clip-vit-large-patch14"
-    filename: "model.safetensors"
-    dest: "clip/clip-vit-large-patch14.safetensors"
-    size_gb: 0.89
-    sha256: null
+  - name: "CLIP-L (Flux)"
+    file: "clip/clip_l.safetensors"
+    source: { repo: "comfyanonymous/flux_text_encoders", file: "clip_l.safetensors" }
+    size_gb: 0.24
+    workflows: [flux-txt2img]
 
   - name: "T5-XXL fp8 (Flux)"
-    enabled: true
-    source: huggingface
-    repo: "comfyanonymous/flux_text_encoders"
-    filename: "t5xxl_fp8_e4m3fn.safetensors"
-    dest: "clip/t5xxl_fp8_e4m3fn.safetensors"
+    file: "clip/t5xxl_fp8_e4m3fn.safetensors"
+    source: { repo: "comfyanonymous/flux_text_encoders", file: "t5xxl_fp8_e4m3fn.safetensors" }
     size_gb: 4.89
-    sha256: null
+    workflows: [flux-txt2img]
 
-  - name: "CLIP-L (Flux)"
-    enabled: true
-    source: huggingface
-    repo: "comfyanonymous/flux_text_encoders"
-    filename: "clip_l.safetensors"
-    dest: "clip/clip_l.safetensors"
-    size_gb: 0.24
-    sha256: null
+  - name: "UMT5-XXL bf16 (Wan)"
+    file: "clip/umt5-xxl-enc-bf16.safetensors"
+    source: { repo: "Kijai/WanVideo_comfy", file: "umt5-xxl-enc-bf16.safetensors" }
+    size_gb: 5.0
+    workflows: [wan-t2v, wan-i2v, wan-i2v-22, wan-flf2v, wan-fun-inpaint, wan-fun-inpaint-14b, wan-charswap]
+    note: "WanVideoWrapper requires this symlinked at /models/text_encoders/. comfy_doctor.sh --fix creates it."
 
-# =============================================================================
-# Upscale Models
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# CLIP VISION
+# ─────────────────────────────────────────────────────────────────────────────
+clip_vision:
+  - name: "CLIP Vision H (Wan I2V)"
+    file: "clip_vision/clip_vision_h.safetensors"
+    source: { repo: "Kijai/WanVideo_comfy", file: "clip_vision_h.safetensors" }
+    size_gb: 3.9
+    workflows: [wan-i2v, wan-i2v-22, wan-charswap]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VAE
+# ─────────────────────────────────────────────────────────────────────────────
+vae:
+  - name: "Flux VAE (ae)"
+    file: "vae/ae.safetensors"
+    source: { repo: "black-forest-labs/FLUX.1-dev", file: "ae.safetensors", gated: true }
+    size_gb: 0.34
+    workflows: [flux-txt2img]
+
+  - name: "SDXL VAE"
+    file: "vae/sdxl_vae.safetensors"
+    source: { repo: "stabilityai/sdxl-vae", file: "sdxl_vae.safetensors" }
+    size_gb: 0.32
+    workflows: [sdxl-txt2img]
+
+  - name: "Wan 2.1 VAE"
+    file: "vae/wan_2.1_vae.safetensors"
+    source: { repo: "Kijai/WanVideo_comfy", file: "wan_2.1_vae.safetensors" }
+    size_gb: 0.34
+    workflows: [wan-t2v, wan-i2v, wan-flf2v]
+
+  - name: "Wan 2.2 VAE (48ch)"
+    file: "vae/wan2.2_vae.safetensors"
+    source: { repo: "Kijai/WanVideo_comfy", file: "wan2.2_vae.safetensors" }
+    size_gb: 1.41
+    workflows: [wan-fun-inpaint, wan-fun-inpaint-14b, wan-i2v-22, wan-charswap]
+    note: "48-channel VAE required for all Wan 2.2 models. Wan 2.1 VAE (16ch) will NOT work."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# UPSCALE MODELS
+# ─────────────────────────────────────────────────────────────────────────────
 upscale_models:
   - name: "RealESRGAN x4plus"
-    enabled: true
-    source: url
-    url: "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth"
-    dest: "upscale_models/RealESRGAN_x4plus.pth"
+    file: "upscale_models/RealESRGAN_x4plus.pth"
+    source: { url: "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth" }
     size_gb: 0.064
-    sha256: null
+    workflows: [esrgan]
 
   - name: "RealESRGAN x4plus Anime"
-    enabled: true
-    source: url
-    url: "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth"
-    dest: "upscale_models/RealESRGAN_x4plus_anime_6B.pth"
+    file: "upscale_models/RealESRGAN_x4plus_anime_6B.pth"
+    source: { url: "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth" }
     size_gb: 0.017
-    sha256: null
+    workflows: [esrgan]
 
   - name: "4x-UltraSharp"
-    enabled: true
-    source: url
-    url: "https://huggingface.co/Kim2091/UltraSharp/resolve/main/4x-UltraSharp.pth"
-    dest: "upscale_models/4x-UltraSharp.pth"
+    file: "upscale_models/4x-UltraSharp.pth"
+    source: { url: "https://huggingface.co/Kim2091/UltraSharp/resolve/main/4x-UltraSharp.pth" }
     size_gb: 0.064
-    sha256: null
+    workflows: [esrgan]
 
-# =============================================================================
-# LoRA Models
-# =============================================================================
+# ─────────────────────────────────────────────────────────────────────────────
+# SEGMENTATION / DETECTION
+# ─────────────────────────────────────────────────────────────────────────────
+sam2:
+  - name: "SAM2 Hiera Large"
+    file: "sam2/sam2.1_hiera_large.safetensors"
+    source: { repo: "Kijai/sam2-safetensors", file: "sam2.1_hiera_large.safetensors" }
+    size_gb: 0.9
+    workflows: [detection, mask-gen]
+
+  - name: "SAM2 Hiera Base Plus"
+    file: "sam2/sam2.1_hiera_base_plus.safetensors"
+    source: { repo: "Kijai/sam2-safetensors", file: "sam2.1_hiera_base_plus.safetensors" }
+    size_gb: 0.31
+    workflows: [wan-charswap]
+
+sams:
+  - name: "SAM ViT-B"
+    file: "sams/sam_vit_b_01ec64.pth"
+    source: { url: "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth" }
+    size_gb: 0.375
+    workflows: [mask-gen]
+
+onnx:
+  # IMPORTANT: Stored at onnx/process_checkpoint/det/ and onnx/wholebody/ on the HOST.
+  # WanVideoWrapper's OnnxDetectionModelLoader looks for them at /models/detection/ inside
+  # the container — two path styles required simultaneously (flat + subdirectory).
+  # comfy_doctor.sh --fix creates all required container-internal symlinks automatically.
+  # Source for yolov10m.onnx is Wan-AI/Wan2.2-Animate-14B repo (not THU-MIG).
+  - name: "YOLOv10m Detection"
+    file: "onnx/process_checkpoint/det/yolov10m.onnx"
+    source: { repo: "Wan-AI/Wan2.2-Animate-14B", file: "process_checkpoint/det/yolov10m.onnx" }
+    size_gb: 0.03
+    workflows: [detection, wan-charswap]
+
+  - name: "ViTPose-L Wholebody"
+    file: "onnx/wholebody/vitpose-l-wholebody.onnx"
+    source: { repo: "JunkyByte/easy_ViTPose", file: "onnx/wholebody/vitpose-l-wholebody.onnx" }
+    size_gb: 1.23
+    workflows: [wan-charswap, detection]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LORAS
+# ─────────────────────────────────────────────────────────────────────────────
 loras:
-  # Add your LoRAs here
-  # - name: "Detail Tweaker XL"
-  #   enabled: true
-  #   source: civitai
-  #   model_id: 122359
-  #   dest: "loras/detail_tweaker_xl.safetensors"
-  #   size_gb: 0.37
-  #   sha256: null
+  - name: "LightX2V 4-step I2V LoRA (low noise)"
+    file: "loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors"
+    source: { repo: "Kijai/WanVideo_comfy", file: "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors" }
+    size_gb: 0.4
+    workflows: [wan-charswap]
 
-# =============================================================================
-# IP-Adapter Models (for reference image conditioning)
-# =============================================================================
-ipadapter:
-  - name: "IP-Adapter SDXL"
-    enabled: false
-    source: huggingface
-    repo: "h94/IP-Adapter"
-    filename: "sdxl_models/ip-adapter_sdxl.safetensors"
-    dest: "ipadapter/ip-adapter_sdxl.safetensors"
-    size_gb: 0.69
-    sha256: null
+  - name: "WanAnimate Relight LoRA fp16"
+    file: "loras/WanAnimate_relight_lora_fp16.safetensors"
+    source: { repo: "Kijai/WanVideo_comfy", file: "LoRAs/Wan22_relight/WanAnimate_relight_lora_fp16.safetensors" }
+    size_gb: 1.44
+    workflows: [wan-charswap]
 
-  - name: "IP-Adapter SDXL Plus"
-    enabled: false
-    source: huggingface
-    repo: "h94/IP-Adapter"
-    filename: "sdxl_models/ip-adapter-plus_sdxl_vit-h.safetensors"
-    dest: "ipadapter/ip-adapter-plus_sdxl_vit-h.safetensors"
-    size_gb: 0.98
-    sha256: null
+  - name: "LightX2V I2V CFG Step Distill LoRA"
+    file: "loras/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors"
+    source: { repo: "Kijai/WanVideo_comfy", file: "Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors" }
+    size_gb: 0.7
+    workflows: [wan-charswap]
 
-# =============================================================================
-# CLIP Vision (for IP-Adapter)
-# =============================================================================
-clip_vision:
-  - name: "CLIP ViT-H (for IP-Adapter)"
-    enabled: false
-    source: huggingface
-    repo: "h94/IP-Adapter"
-    filename: "models/image_encoder/model.safetensors"
-    dest: "clip_vision/clip-vit-h.safetensors"
-    size_gb: 2.4
-    sha256: null
+# ─────────────────────────────────────────────────────────────────────────────
+# SAM3D / TRELLIS (special: HuggingFace snapshot download)
+# ─────────────────────────────────────────────────────────────────────────────
+sam3d:
+  - name: "TRELLIS Image Large (checkpoints)"
+    file: "sam3d/hf/checkpoints/pipeline.yaml"
+    source: { repo: "JeffreyXiang/TRELLIS-image-large", snapshot: true }
+    size_gb: 15.0
+    workflows: [sam3d-objects]
+    note: "Downloaded via: huggingface-cli download JeffreyXiang/TRELLIS-image-large --local-dir /mnt/ssd/comfyui-models/sam3d/hf"
 
-# =============================================================================
-# Video Models (for AnimateDiff, etc.)
-# =============================================================================
-animatediff:
-  - name: "AnimateDiff v3 Motion Module"
-    enabled: false
-    source: huggingface
-    repo: "guoyww/animatediff-motion-adapter-v1-5-3"
-    filename: "diffusion_pytorch_model.safetensors"
-    dest: "animatediff_models/v3_sd15_mm.safetensors"
-    size_gb: 1.8
-    sha256: null
+# ─────────────────────────────────────────────────────────────────────────────
+# GVHMR — Global Video Human Mesh Recovery
+# ─────────────────────────────────────────────────────────────────────────────
+gvhmr:
+  - name: "GVHMR SIGA 2024 Checkpoint"
+    file: "gvhmr/checkpoints/gvhmr_siga24_release.ckpt"
+    source: { repo: "camenduru/gvhmr", file: "gvhmr_siga24_release.ckpt" }
+    size_gb: 2.1
+    workflows: [gvhmr-pose-static, gvhmr-pose-moving]
+
+  - name: "HMR2a Backbone (4D-Humans)"
+    file: "gvhmr/checkpoints/hmr2a.ckpt"
+    source: { repo: "shubham-goel/4D-Humans", file: "hmr2a.ckpt" }
+    size_gb: 2.1
+    workflows: [gvhmr-pose-static, gvhmr-pose-moving]
+
+  - name: "SMPL Neutral Body Model"
+    file: "gvhmr/checkpoints/SMPL_NEUTRAL.pkl"
+    source: { repo: "camenduru/SMPLer-X", file: "smpl/SMPL_NEUTRAL.pkl" }
+    size_gb: 0.09
+    workflows: [gvhmr-pose-static, gvhmr-pose-moving, smpl-to-bvh]
+
+  - name: "DPVO Camera Trajectory Estimator"
+    file: "gvhmr/checkpoints/dpvo.pth"
+    source: { repo: "camenduru/gvhmr", file: "dpvo.pth" }
+    size_gb: 0.35
+    workflows: [gvhmr-pose-moving]
+    note: "Moving camera variant only"

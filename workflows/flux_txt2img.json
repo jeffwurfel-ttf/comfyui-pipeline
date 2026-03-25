@@ -1,0 +1,102 @@
+{
+    "1": {
+        "class_type": "UNETLoader",
+        "inputs": {
+            "unet_name": "flux1-dev-fp8.safetensors",
+            "weight_dtype": "fp8_e4m3fn"
+        },
+        "_meta": {"title": "Load Flux UNET"}
+    },
+    "2": {
+        "class_type": "DualCLIPLoader",
+        "inputs": {
+            "clip_name1": "t5xxl_fp8_e4m3fn.safetensors",
+            "clip_name2": "clip_l.safetensors",
+            "type": "flux"
+        },
+        "_meta": {"title": "Load CLIP Encoders"}
+    },
+    "3": {
+        "class_type": "VAELoader",
+        "inputs": {
+            "vae_name": "ae.safetensors"
+        },
+        "_meta": {"title": "Load Flux VAE"}
+    },
+    "4": {
+        "class_type": "CLIPTextEncode",
+        "inputs": {
+            "text": "a beautiful mountain landscape at golden hour, dramatic clouds, photorealistic",
+            "clip": ["2", 0]
+        },
+        "_meta": {"title": "positive"}
+    },
+    "5": {
+        "class_type": "EmptySD3LatentImage",
+        "inputs": {
+            "width": 1024,
+            "height": 1024,
+            "batch_size": 1
+        },
+        "_meta": {"title": "Empty Latent"}
+    },
+    "6": {
+        "class_type": "BasicGuider",
+        "inputs": {
+            "model": ["1", 0],
+            "conditioning": ["4", 0]
+        },
+        "_meta": {"title": "Basic Guider"}
+    },
+    "7": {
+        "class_type": "KSamplerSelect",
+        "inputs": {
+            "sampler_name": "euler"
+        },
+        "_meta": {"title": "Sampler Select"}
+    },
+    "8": {
+        "class_type": "BasicScheduler",
+        "inputs": {
+            "model": ["1", 0],
+            "scheduler": "simple",
+            "steps": 25,
+            "denoise": 1.0
+        },
+        "_meta": {"title": "Scheduler"}
+    },
+    "9": {
+        "class_type": "SamplerCustomAdvanced",
+        "inputs": {
+            "noise": ["10", 0],
+            "guider": ["6", 0],
+            "sampler": ["7", 0],
+            "sigmas": ["8", 0],
+            "latent_image": ["5", 0]
+        },
+        "_meta": {"title": "Advanced Sampler"}
+    },
+    "10": {
+        "class_type": "RandomNoise",
+        "inputs": {
+            "noise_seed": 42
+        },
+        "_meta": {"title": "Random Noise"}
+    },
+    "11": {
+        "class_type": "VAEDecode",
+        "inputs": {
+            "samples": ["9", 0],
+            "vae": ["3", 0]
+        },
+        "_meta": {"title": "VAE Decode"}
+    },
+    "12": {
+        "class_type": "SaveImage",
+        "inputs": {
+            "images": ["11", 0],
+            "filename_prefix": "flux_txt2img"
+        },
+        "_meta": {"title": "Save Image"}
+    }
+}

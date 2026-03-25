@@ -1,16 +1,22 @@
-# ComfyUI Pipeline Service
+# =============================================================================
+# ComfyUI Pipeline Service — Rocky Linux Deployment
+# =============================================================================
 #
-# Usage:
-#   docker-compose up -d          # Start service
-#   docker-compose logs -f        # View logs
-#   docker-compose down           # Stop service
+# Server: rocky-gpu01 (10.10.210.80), user: jeffw
+# Storage: /mnt/ssd (1TB SSD) for all models, input, output
+# Symlinks: ~/comfyui-models -> /mnt/ssd/comfyui-models (etc)
 #
-# First run - check models:
-#   docker-compose run --rm comfyui python /app/check_models.py
+# First-time setup:
+#   1. Copy .env.example to .env, set HF_TOKEN
+#   2. Run ./bootstrap.sh to create dirs and download models
+#   3. docker compose up -d --build
 #
-# Ports:
-#   8188: ComfyUI Web UI
-#   8189: API Wrapper (simplified REST API)
+# Rebuild after Dockerfile changes:
+#   docker compose up -d --build
+#
+# Logs:
+#   docker compose logs -f
+# =============================================================================
 
 services:
   comfyui:
@@ -19,49 +25,36 @@ services:
       dockerfile: Dockerfile
     image: comfyui-pipeline:latest
     container_name: comfyui-pipeline
-    
+
     ports:
       - "8188:8188"
       - "8189:8189"
-    
+
     environment:
-      # ComfyUI settings
       - COMFYUI_LISTEN=0.0.0.0
       - COMFYUI_PORT=8188
       - COMFYUI_MODELS_PATH=/models
-      
-      # API wrapper settings
       - WRAPPER_PORT=8189
       - WORKFLOWS_DIR=/app/workflows
-      
-      # GPU settings
       - NVIDIA_VISIBLE_DEVICES=all
       - CUDA_VISIBLE_DEVICES=0
-      
-      # Performance
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-      
-      # Optional: check models on startup
-      - CHECK_MODELS=false
-      
-      # Model download tokens (optional)
-      - CIVITAI_API_KEY=${CIVITAI_API_KEY:-}
+      - CHECK_MODELS=true
+      - AUTODOWNLOAD_MODELS=false
       - HF_TOKEN=${HF_TOKEN:-}
-    
+      - HF_HOME=/models/.hf_cache
+
     volumes:
-      # Models - mount from host (single source of truth)
-      - H:/dev/AI_dev/models:/models
-      
-      # Workflows - mount for easy updates
-      - ./workflows:/app/workflows
-      
-      # Custom nodes - mount for easy development
-      - ./custom_nodes:/app/ComfyUI/custom_nodes
-      
-      # Output/Input directories
-      - ./output:/app/ComfyUI/output
-      - ./input:/app/ComfyUI/input
-    
+      # Models — SSD via symlink (~/comfyui-models -> /mnt/ssd/comfyui-models)
+      - ${COMFY_MODELS_HOST:-/mnt/ssd/comfyui-models}:/models
+
+      # Workflows
+      - ./workflows:/app/workflows:ro
+
+      # Output/Input — SSD via symlink
+      - ${COMFY_OUTPUT_HOST:-/mnt/ssd/comfyui-output}:/app/ComfyUI/output
+      - ${COMFY_INPUT_HOST:-/mnt/ssd/comfyui-input}:/app/ComfyUI/input
+
     deploy:
       resources:
         reservations:
@@ -69,15 +62,21 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    
+
     restart: unless-stopped
-    
+
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8189/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 120s
+      start_period: 180s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
 
 networks:
   default:

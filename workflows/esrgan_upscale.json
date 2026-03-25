@@ -1,0 +1,32 @@
+{
+    "1": {
+        "class_type": "LoadImage",
+        "inputs": {
+            "image": "input.png"
+        },
+        "_meta": {"title": "Load Input Image"}
+    },
+    "2": {
+        "class_type": "UpscaleModelLoader",
+        "inputs": {
+            "model_name": "RealESRGAN_x4plus.pth"
+        },
+        "_meta": {"title": "Load ESRGAN Model"}
+    },
+    "3": {
+        "class_type": "ImageUpscaleWithModel",
+        "inputs": {
+            "upscale_model": ["2", 0],
+            "image": ["1", 0]
+        },
+        "_meta": {"title": "Upscale 4x"}
+    },
+    "4": {
+        "class_type": "SaveImage",
+        "inputs": {
+            "images": ["3", 0],
+            "filename_prefix": "esrgan_upscale"
+        },
+        "_meta": {"title": "Save Upscaled Image"}
+    }
+}

@@ -1,0 +1,233 @@
+# ComfyUI Pipeline Service
+#
+# Features:
+#   - Custom nodes pre-installed for consistency across fleet
+#   - TTF custom nodes for multi-person detection workflows
+#   - Models mounted from host (not baked in)
+#   - API wrapper for simplified workflow execution
+#   - Health checks for fleet orchestration
+#
+# Build:
+#   docker build -t comfyui-pipeline:latest .
+
+FROM nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ============================================================
+# SYSTEM DEPENDENCIES
+# ============================================================
+RUN apt-get update && apt-get install -y \
+    python3.11 \
+    python3.11-venv \
+    python3.11-dev \
+    python3-pip \
+    git \
+    wget \
+    curl \
+    ffmpeg \
+    build-essential \
+    ninja-build \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set Python 3.11 as default
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
+    && pip install --no-cache-dir --upgrade pip
+
+WORKDIR /app
+
+# ============================================================
+# PYTORCH + COMFYUI
+# ============================================================
+RUN pip install --no-cache-dir \
+    torch==2.4.1 \
+    torchvision==0.19.1 \
+    torchaudio==2.4.1 \
+    --index-url https://download.pytorch.org/whl/cu121
+
+RUN pip install --no-cache-dir "numpy<2"
+
+RUN git clone https://github.com/comfyanonymous/ComfyUI.git /app/ComfyUI
+
+WORKDIR /app/ComfyUI
+
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir "numpy<2"
+
+# ============================================================
+# CUSTOM NODES - Community
+# ============================================================
+WORKDIR /app/ComfyUI/custom_nodes
+
+RUN git clone https://github.com/ltdrdata/ComfyUI-Manager.git
+RUN git clone https://github.com/kijai/ComfyUI-KJNodes.git
+RUN git clone https://github.com/kijai/ComfyUI-WanVideoWrapper.git
+RUN git clone https://github.com/kijai/ComfyUI-segment-anything-2.git
+RUN git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git
+RUN git clone https://github.com/kijai/ComfyUI-WanAnimatePreprocess.git
+RUN git clone https://github.com/PozzettiAndrea/ComfyUI-SAM3DObjects.git
+RUN git clone https://github.com/Fannovel16/ComfyUI-Frame-Interpolation.git
+RUN git clone https://github.com/daniabib/ComfyUI_ProPainter_Nodes.git
+RUN git clone https://github.com/PozzettiAndrea/ComfyUI-MotionCapture.git
+RUN git clone https://github.com/PozzettiAndrea/ComfyUI-CameraPack.git
+RUN git clone https://github.com/PozzettiAndrea/ComfyUI-HyMotion.git
+RUN git clone https://github.com/PozzettiAndrea/ComfyUI-Env-Manager.git
+RUN git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git
+RUN git clone https://github.com/rgthree/rgthree-comfy.git
+
+# ============================================================
+# CUSTOM NODES - TTF
+# ============================================================
+RUN mkdir -p /app/ComfyUI/custom_nodes/ComfyUI-MultiPersonDetector
+COPY custom_nodes/ComfyUI-MultiPersonDetector/__init__.py \
+     /app/ComfyUI/custom_nodes/ComfyUI-MultiPersonDetector/__init__.py
+
+# ============================================================
+# PYTHON DEPENDENCIES
+# ============================================================
+WORKDIR /app/ComfyUI
+
+# API wrapper
+RUN pip install --no-cache-dir \
+    fastapi \
+    uvicorn[standard] \
+    python-multipart \
+    httpx \
+    requests
+
+# Common deps
+RUN pip install --no-cache-dir \
+    opencv-python-headless \
+    scikit-image \
+    scipy \
+    onnxruntime-gpu \
+    accelerate \
+    matplotlib \
+    onnx \
+    pyyaml \
+    huggingface_hub \
+    tqdm
+
+# Packages needed by Impact Pack and other nodes
+# MUST be baked in — pip installs don't survive container restarts
+RUN pip install --no-cache-dir \
+    piexif \
+    segment-anything
+
+# Custom node requirements
+RUN cd /app/ComfyUI/custom_nodes/ComfyUI-Manager && \
+    pip install --no-cache-dir -r requirements.txt || true
+RUN cd /app/ComfyUI/custom_nodes/ComfyUI-KJNodes && \
+    pip install --no-cache-dir -r requirements.txt || true
+RUN cd /app/ComfyUI/custom_nodes/ComfyUI-WanVideoWrapper && \
+    pip install --no-cache-dir -r requirements.txt || true
+RUN cd /app/ComfyUI/custom_nodes/ComfyUI-segment-anything-2 && \
+    pip install --no-cache-dir -r requirements.txt || true
+RUN cd /app/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite && \
+    pip install --no-cache-dir -r requirements.txt || true
+RUN cd /app/ComfyUI/custom_nodes/ComfyUI-WanAnimatePreprocess && \
+    pip install --no-cache-dir -r requirements.txt || true
+RUN cd /app/ComfyUI/custom_nodes/ComfyUI-SAM3DObjects && \
+    pip install --no-cache-dir -r requirements.txt || true
+RUN cd /app/ComfyUI/custom_nodes/ComfyUI-Frame-Interpolation && \
+    pip install --no-cache-dir -r requirements.txt || true
+RUN cd /app/ComfyUI/custom_nodes/ComfyUI_ProPainter_Nodes && \
+    pip install --no-cache-dir -r requirements.txt || true
+RUN cd /app/ComfyUI/custom_nodes/ComfyUI-MotionCapture && \
+    pip install --no-cache-dir -r requirements.txt || true
+RUN cd /app/ComfyUI/custom_nodes/ComfyUI-CameraPack && \
+    pip install --no-cache-dir -r requirements.txt || true
+RUN cd /app/ComfyUI/custom_nodes/ComfyUI-HyMotion && \
+    pip install --no-cache-dir -r requirements.txt || true
+RUN cd /app/ComfyUI/custom_nodes/ComfyUI-Env-Manager && \
+    pip install --no-cache-dir -r requirements.txt || true
+RUN cd /app/ComfyUI/custom_nodes/ComfyUI-Impact-Pack && \
+    pip install --no-cache-dir -r requirements.txt || true && \
+    python install.py || true
+RUN cd /app/ComfyUI/custom_nodes/rgthree-comfy && \
+    pip install --no-cache-dir -r requirements.txt || true
+
+# pytorch3d - required by SAM3DObjects + MotionCapture
+ENV MAX_JOBS=2
+RUN pip install --no-cache-dir pytorch3d \
+    -f https://miropsota.github.io/torch_packages_builder/pytorch3d.html \
+    || pip install --no-cache-dir --no-build-isolation \
+    "git+https://github.com/facebookresearch/pytorch3d.git"
+ENV MAX_JOBS=
+
+# Final numpy pin
+RUN pip install --no-cache-dir "numpy<2"
+
+# ============================================================
+# DIRECTORY STRUCTURE
+# ============================================================
+
+# Create model directories (populated by host volume mount at runtime)
+RUN mkdir -p \
+    /models/checkpoints \
+    /models/vae \
+    /models/controlnet \
+    /models/clip \
+    /models/upscale_models \
+    /models/loras \
+    /models/ipadapter \
+    /models/clip_vision \
+    /models/animatediff_models \
+    /models/sam2 \
+    /models/dwpose \
+    /models/wan \
+    /models/diffusion_models \
+    /models/sam3d \
+    /models/sam3dobjects \
+    /models/frame_interpolation \
+    /models/propainter \
+    /models/vace \
+    /models/mocap
+
+# CRITICAL: Symlink /app/ComfyUI/models -> /models
+# Custom nodes use folder_paths.models_dir (= /app/ComfyUI/models)
+# This symlink ensures lookups resolve to the host-mounted volume.
+# Path chain: /app/ComfyUI/models -> /models -> host volume mount
+RUN rm -rf /app/ComfyUI/models && \
+    ln -s /models /app/ComfyUI/models
+
+# Working directories
+RUN mkdir -p \
+    /app/ComfyUI/output \
+    /app/ComfyUI/input \
+    /app/ComfyUI/user/default/workflows \
+    /app/workflows
+
+# ============================================================
+# SCRIPTS
+# ============================================================
+COPY scripts/start.sh /app/start.sh
+COPY scripts/api_wrapper.py /app/api_wrapper.py
+COPY scripts/check_models.py /app/check_models.py
+
+RUN sed -i 's/\r$//' /app/start.sh && chmod +x /app/start.sh
+
+# ============================================================
+# ENVIRONMENT
+# ============================================================
+ENV COMFYUI_MODELS_PATH=/models
+ENV COMFYUI_LISTEN=0.0.0.0
+ENV COMFYUI_PORT=8188
+ENV WORKFLOWS_DIR=/app/workflows
+ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# ============================================================
+# RUNTIME
+# ============================================================
+EXPOSE 8188 8189
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=3 \
+    CMD curl -f http://localhost:8189/health || exit 1
+
+CMD ["/app/start.sh"]

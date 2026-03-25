@@ -2,11 +2,13 @@
 # ComfyUI Container Entrypoint
 #
 # Handles:
+#   - WanVideoWrapper symlinks (detection/, text_encoders/)
 #   - Model symlink creation (bridges host layout to ComfyUI expectations)
 #   - Model symlink verification
 #   - Optional model download on startup
 #   - Custom node installation
-#   - Starting ComfyUI
+#   - OpenCV health check
+#   - Starting ComfyUI via CMD
 
 set -e
 
@@ -22,18 +24,58 @@ if [ ! -d "/models" ]; then
 fi
 
 # =============================================================================
-# MODEL SYMLINKS
+# WANVIDEOWRAPPER SYMLINKS
 # =============================================================================
-# ComfyUI expects models in specific directories (checkpoints/, diffusion_models/,
-# clip/, vae/, etc). Our host may store models in different locations.
-# Create symlinks so ComfyUI can find everything.
+# WanVideoWrapper nodes hardcode specific paths that differ from the host layout.
+# These symlinks are container-internal and must be created on every boot.
+# Previously required manual `comfy_doctor.sh --fix` after every rebuild.
 
+echo ""
+echo "Setting up WanVideoWrapper symlinks..."
+echo "---------------------------------------"
+
+# --- detection/ flat paths (MultiPersonDetection) ---
+mkdir -p /models/detection
+if [ -f "/models/onnx/wholebody/vitpose-l-wholebody.onnx" ]; then
+    ln -sf /models/onnx/wholebody/vitpose-l-wholebody.onnx /models/detection/vitpose-l-wholebody.onnx 2>/dev/null && \
+        echo "  ✓ detection/vitpose-l-wholebody.onnx (flat)" || true
+fi
+if [ -f "/models/onnx/process_checkpoint/det/yolov10m.onnx" ]; then
+    ln -sf /models/onnx/process_checkpoint/det/yolov10m.onnx /models/detection/yolov10m.onnx 2>/dev/null && \
+        echo "  ✓ detection/yolov10m.onnx (flat)" || true
+fi
+
+# --- detection/ subdirectory paths (TTFCharacterSwap) ---
+mkdir -p /models/detection/onnx/wholebody
+mkdir -p /models/detection/process_checkpoint/det
+if [ -f "/models/onnx/wholebody/vitpose-l-wholebody.onnx" ]; then
+    ln -sf /models/onnx/wholebody/vitpose-l-wholebody.onnx /models/detection/onnx/wholebody/vitpose-l-wholebody.onnx 2>/dev/null && \
+        echo "  ✓ detection/onnx/wholebody/vitpose-l-wholebody.onnx (subdir)" || true
+fi
+if [ -f "/models/onnx/process_checkpoint/det/yolov10m.onnx" ]; then
+    ln -sf /models/onnx/process_checkpoint/det/yolov10m.onnx /models/detection/process_checkpoint/det/yolov10m.onnx 2>/dev/null && \
+        echo "  ✓ detection/process_checkpoint/det/yolov10m.onnx (subdir)" || true
+fi
+
+# --- text_encoders/ (LoadWanVideoT5TextEncoder) ---
+mkdir -p /models/text_encoders
+for encoder in umt5-xxl-enc-bf16.safetensors clip_l.safetensors t5xxl_fp8_e4m3fn.safetensors; do
+    if [ -f "/models/clip/${encoder}" ] && [ ! -e "/models/text_encoders/${encoder}" ]; then
+        ln -sf "/models/clip/${encoder}" "/models/text_encoders/${encoder}" 2>/dev/null && \
+            echo "  ✓ text_encoders/${encoder}" || true
+    fi
+done
+
+echo "  WanVideoWrapper symlinks complete."
+
+# =============================================================================
+# MODEL SYMLINKS (host layout → ComfyUI expectations)
+# =============================================================================
 echo ""
 echo "Setting up model symlinks..."
 echo "----------------------------"
 
 # --- checkpoints/ (for CheckpointLoaderSimple) ---
-# SDXL checkpoints live in /models/sdxl/ on host
 mkdir -p /models/checkpoints
 if [ -d "/models/sdxl" ]; then
     for f in /models/sdxl/*.safetensors; do
@@ -47,7 +89,6 @@ if [ -d "/models/sdxl" ]; then
 fi
 
 # --- diffusion_models/ (for UNETLoader) ---
-# Flux model lives in /models/flux-dev/ on host
 mkdir -p /models/diffusion_models
 if [ -d "/models/flux-dev" ]; then
     for f in /models/flux-dev/flux*.safetensors; do
@@ -61,24 +102,14 @@ if [ -d "/models/flux-dev" ]; then
 fi
 
 # --- vae/ (for VAELoader) ---
-# Flux VAE (ae.safetensors) lives in /models/flux-dev/
 mkdir -p /models/vae
 if [ -f "/models/flux-dev/ae.safetensors" ] && [ ! -e "/models/vae/ae.safetensors" ]; then
     ln -sf /models/flux-dev/ae.safetensors /models/vae/ae.safetensors
     echo "  vae/ae.safetensors -> flux-dev/ae.safetensors"
 fi
 
-# --- clip/ (for CLIPLoader, DualCLIPLoader) ---
-# Flux CLIP models - symlink if downloaded to flux-dev/ or clip/
+# --- clip/ ---
 mkdir -p /models/clip
-if [ -d "/models/flux-dev/text_encoder" ]; then
-    # Diffusers format T5 - ComfyUI can't use this directly
-    # Users need to download the safetensors versions separately
-    echo "  Note: flux-dev/text_encoder/ found (diffusers format)"
-    echo "  For Flux profiles, download the ComfyUI-compatible versions:"
-    echo "    clip/t5xxl_fp8_e4m3fn.safetensors"
-    echo "    clip/clip_l.safetensors"
-fi
 
 echo "  Symlink setup complete."
 
@@ -90,48 +121,29 @@ echo "Models Directory Contents:"
 echo "--------------------------"
 for dir in /models/*/; do
     if [ -d "$dir" ]; then
-        # Count real files + symlinks
         count=$(find "$dir" -maxdepth 1 \( -type f -o -type l \) | wc -l)
-        echo "  $(basename $dir): $count files"
+        if [ "$count" -gt 0 ]; then
+            echo "  $(basename $dir): $count files"
+        fi
     fi
 done
 
-# Show what ComfyUI will see in key directories
+# =============================================================================
+# OPENCV HEALTH CHECK
+# =============================================================================
 echo ""
-echo "ComfyUI Model Paths:"
-echo "--------------------"
-echo "  checkpoints/:"
-ls -1 /models/checkpoints/*.safetensors 2>/dev/null | while read f; do
-    echo "    $(basename $f)"
-done || echo "    (empty)"
-
-echo "  diffusion_models/:"
-ls -1 /models/diffusion_models/*.safetensors 2>/dev/null | while read f; do
-    echo "    $(basename $f)"
-done || echo "    (empty)"
-
-echo "  vae/:"
-ls -1 /models/vae/*.safetensors 2>/dev/null | while read f; do
-    echo "    $(basename $f)"
-done || echo "    (empty)"
-
-echo "  clip/:"
-ls -1 /models/clip/*.safetensors 2>/dev/null | while read f; do
-    echo "    $(basename $f)"
-done || echo "    (empty)"
-
-echo "  upscale_models/:"
-ls -1 /models/upscale_models/*.pth 2>/dev/null | while read f; do
-    echo "    $(basename $f)"
-done || echo "    (empty)"
-
-# Check if model manager script exists
-if [ -f "/app/models/manager.py" ]; then
-    echo ""
-    echo "Model Manager Available"
-    echo "-----------------------"
-    echo "  Status:   python /app/models/manager.py status"
-    echo "  Download: python /app/models/manager.py download"
+echo "OpenCV Check:"
+echo "-------------"
+if python -c "import cv2; print(f'  ✓ cv2 {cv2.__version__}')" 2>/dev/null; then
+    if python -c "import cv2; assert hasattr(cv2, 'VideoCapture'); print('  ✓ VideoCapture available')" 2>/dev/null; then
+        true
+    else
+        echo "  ⚠ cv2 imported but VideoCapture missing — reinstalling headless"
+        pip install --quiet --force-reinstall opencv-python-headless 2>/dev/null || true
+    fi
+else
+    echo "  ⚠ cv2 import failed — reinstalling headless"
+    pip install --quiet --force-reinstall opencv-python-headless 2>/dev/null || true
 fi
 
 # Auto-download models if AUTODOWNLOAD_MODELS=true
@@ -152,14 +164,15 @@ if [ "${UPDATE_CUSTOM_NODES:-false}" = "true" ]; then
             (cd "$node_dir" && git pull) || true
         fi
     done
-    
-    # Install requirements for custom nodes
     for req_file in */requirements.txt; do
         if [ -f "$req_file" ]; then
             echo "  Installing requirements for: $(dirname $req_file)"
             pip install -q -r "$req_file" || true
         fi
     done
+    # Re-fix opencv after any requirements.txt installs
+    pip uninstall -y opencv-python 2>/dev/null; \
+    pip install --quiet --force-reinstall opencv-python-headless 2>/dev/null || true
 fi
 
 # Show GPU info
@@ -174,5 +187,5 @@ echo "Starting ComfyUI on port ${COMFYUI_PORT:-8188}"
 echo "=========================================="
 echo ""
 
-# Execute the main command
+# Execute the main command (CMD = /app/start.sh)
 exec "$@"

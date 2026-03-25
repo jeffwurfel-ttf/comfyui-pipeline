@@ -1,0 +1,66 @@
+{
+    "1": {
+        "class_type": "CheckpointLoaderSimple",
+        "inputs": {
+            "ckpt_name": "sd_xl_base_1.0.safetensors"
+        },
+        "_meta": {"title": "Load SDXL Checkpoint"}
+    },
+    "2": {
+        "class_type": "CLIPTextEncode",
+        "inputs": {
+            "text": "a beautiful mountain landscape at golden hour, dramatic clouds, photorealistic, 8k, sharp focus",
+            "clip": ["1", 1]
+        },
+        "_meta": {"title": "positive"}
+    },
+    "3": {
+        "class_type": "CLIPTextEncode",
+        "inputs": {
+            "text": "blurry, low quality, distorted, deformed, ugly, watermark, text, signature, oversaturated",
+            "clip": ["1", 1]
+        },
+        "_meta": {"title": "negative"}
+    },
+    "4": {
+        "class_type": "EmptyLatentImage",
+        "inputs": {
+            "width": 1024,
+            "height": 1024,
+            "batch_size": 1
+        },
+        "_meta": {"title": "Empty Latent"}
+    },
+    "5": {
+        "class_type": "KSampler",
+        "inputs": {
+            "model": ["1", 0],
+            "positive": ["2", 0],
+            "negative": ["3", 0],
+            "latent_image": ["4", 0],
+            "seed": 42,
+            "steps": 28,
+            "cfg": 7.0,
+            "sampler_name": "euler_ancestral",
+            "scheduler": "normal",
+            "denoise": 1.0
+        },
+        "_meta": {"title": "KSampler"}
+    },
+    "6": {
+        "class_type": "VAEDecode",
+        "inputs": {
+            "samples": ["5", 0],
+            "vae": ["1", 2]
+        },
+        "_meta": {"title": "VAE Decode"}
+    },
+    "7": {
+        "class_type": "SaveImage",
+        "inputs": {
+            "images": ["6", 0],
+            "filename_prefix": "sdxl_txt2img"
+        },
+        "_meta": {"title": "Save Image"}
+    }
+}

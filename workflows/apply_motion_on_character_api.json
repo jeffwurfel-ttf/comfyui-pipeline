@@ -1,0 +1,63 @@
+{
+  "2": {
+    "class_type": "LoadSMPL",
+    "inputs": {
+      "file_path": "smpl_params_example.npz"
+    },
+    "_meta": {
+      "title": "LoadSMPL"
+    }
+  },
+  "1": {
+    "class_type": "HYMotionNPZToSMPLParams",
+    "inputs": {
+      "npz_path": [
+        "2",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "HYMotionNPZToSMPLParams"
+    }
+  },
+  "3": {
+    "class_type": "HYMotionSMPLToData",
+    "inputs": {
+      "smpl_params": [
+        "1",
+        0
+      ],
+      "text": "",
+      "duration": 0
+    },
+    "_meta": {
+      "title": "HYMotionSMPLToData"
+    }
+  },
+  "4": {
+    "class_type": "HYMotionRetargetFBX",
+    "inputs": {
+      "motion_data": [
+        "3",
+        0
+      ],
+      "target_fbx": "3d/mixamo.fbx",
+      "output_dir": "hymotion_retarget",
+      "filename_prefix": "retarget",
+      "mapping_file": "",
+      "yaw_offset": 0,
+      "neutral_fingers": true,
+      "unique_names": true,
+      "in_place": false,
+      "in_place_x": false,
+      "in_place_y": false,
+      "in_place_z": false,
+      "preserve_position": false,
+      "fps": 30,
+      "target_pose_type": "T-Pose"
+    },
+    "_meta": {
+      "title": "HYMotionRetargetFBX"
+    }
+  }
+}

@@ -1,0 +1,165 @@
+{
+  "10": {
+    "class_type": "LoadVideo",
+    "inputs": {
+      "file": "video.mp4"
+    },
+    "_meta": { "title": "Load Source Video (for GVHMR)" }
+  },
+  "11": {
+    "class_type": "LoadVideo",
+    "inputs": {
+      "file": "mask_video.mp4"
+    },
+    "_meta": { "title": "Load Mask Video (for GVHMR)" }
+  },
+
+  "15": {
+    "class_type": "VHS_LoadVideo",
+    "inputs": {
+      "video": "video.mp4",
+      "force_rate": 0,
+      "custom_width": 0,
+      "custom_height": 0,
+      "frame_load_cap": 0,
+      "skip_first_frames": 0,
+      "select_every_nth": 1,
+      "format": "AnimateDiff"
+    },
+    "_meta": { "title": "Load Source Video (for Pose Detection)" }
+  },
+  "16": {
+    "class_type": "GetImageSizeAndCount",
+    "inputs": {
+      "image": ["15", 0]
+    },
+    "_meta": { "title": "Get Video Size" }
+  },
+
+  "20": {
+    "class_type": "LoadGVHMRModels",
+    "inputs": {
+      "model_path_override": "",
+      "precision": "auto",
+      "attention": "auto",
+      "load_dpvo": false
+    },
+    "_meta": { "title": "Load GVHMR Models" }
+  },
+  "21": {
+    "class_type": "GVHMRInference",
+    "inputs": {
+      "video": ["10", 0],
+      "video_mask": ["11", 0],
+      "config": ["20", 0],
+      "moving_camera": false,
+      "focal_length_mm": 0,
+      "bbox_scale": 1.2,
+      "vo_method": "simple_vo",
+      "vo_scale": 0.5,
+      "vo_step": 8,
+      "chunk_size": 32
+    },
+    "_meta": { "title": "GVHMR Pose Estimation" }
+  },
+
+  "30": {
+    "class_type": "SMPLtoBVH",
+    "inputs": {
+      "npz_path": ["21", 0],
+      "filename": "motion_capture.bvh",
+      "fps": 30,
+      "scale": 1.0
+    },
+    "_meta": { "title": "Convert to BVH" }
+  },
+
+  "40": {
+    "class_type": "OnnxDetectionModelLoader",
+    "inputs": {
+      "vitpose_model": "onnx/wholebody/vitpose-l-wholebody.onnx",
+      "yolo_model": "process_checkpoint/det/yolov10m.onnx",
+      "onnx_device": "CUDAExecutionProvider"
+    },
+    "_meta": { "title": "Load Pose Detection Models" }
+  },
+  "41": {
+    "class_type": "PoseAndFaceDetection",
+    "inputs": {
+      "width": ["16", 1],
+      "height": ["16", 2],
+      "face_padding": 0,
+      "model": ["40", 0],
+      "images": ["16", 0]
+    },
+    "_meta": { "title": "Detect 2D Poses" }
+  },
+  "42": {
+    "class_type": "DrawViTPose",
+    "inputs": {
+      "width": ["16", 1],
+      "height": ["16", 2],
+      "retarget_padding": 0,
+      "body_stick_width": 4,
+      "hand_stick_width": 2,
+      "draw_head": "True",
+      "pose_data": ["41", 0]
+    },
+    "_meta": { "title": "Draw Skeleton" }
+  },
+
+  "50": {
+    "class_type": "ImageBlend",
+    "inputs": {
+      "image1": ["16", 0],
+      "image2": ["42", 0],
+      "blend_factor": 1.0,
+      "blend_mode": "screen"
+    },
+    "_meta": { "title": "Overlay Skeleton on Video" }
+  },
+  "52": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "frame_rate": 16,
+      "loop_count": 0,
+      "filename_prefix": "pose_overlay",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": true,
+      "images": ["50", 0]
+    },
+    "_meta": { "title": "Save Pose Overlay Video" }
+  },
+  "51": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "frame_rate": 16,
+      "loop_count": 0,
+      "filename_prefix": "skeleton_only",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": true,
+      "images": ["42", 0]
+    },
+    "_meta": { "title": "Save Skeleton Video" }
+  },
+
+  "60": {
+    "class_type": "SaveStringKJ",
+    "inputs": {
+      "string": ["21", 0],
+      "filename_prefix": "smpl_npz_path",
+      "output_folder": "output"
+    },
+    "_meta": { "title": "Save NPZ Path" }
+  }
+}

@@ -1,0 +1,31 @@
+# =============================================================================
+# PIP CONSTRAINTS — ComfyUI Pipeline
+# =============================================================================
+# Prevents custom node requirements.txt from clobbering shared dependencies.
+# Set via ENV PIP_CONSTRAINT=/app/constraints.txt in Dockerfile.
+#
+# How it works:
+#   - Any `pip install -r requirements.txt` that tries to install a blocked
+#     package will skip it silently (constraint satisfied by existing install)
+#   - Pinned packages stay at the specified version regardless of what
+#     individual custom nodes request
+#
+# To update: edit this file and rebuild the container.
+# =============================================================================
+
+# --- OpenCV: headless ONLY (no GUI deps in a headless container) ---
+# Block the GUI variants entirely. Any custom node requesting opencv-python
+# gets opencv-python-headless instead (they provide the same cv2 package).
+opencv-python-headless>=4.9.0
+# These are "impossible constraints" — pip can't satisfy them, so it skips.
+# This prevents any requirements.txt from pulling in the GUI variant.
+opencv-python>=99.0.0
+opencv-contrib-python>=99.0.0
+
+# --- NumPy: stay on 1.x (many nodes break on numpy 2.x) ---
+numpy<2,>=1.24.0
+
+# --- PyTorch: pinned to match CUDA 12.1 install ---
+torch==2.4.1
+torchvision==0.19.1
+torchaudio==2.4.1

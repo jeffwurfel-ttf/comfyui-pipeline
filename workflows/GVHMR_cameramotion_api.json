@@ -1,0 +1,72 @@
+{
+  "32": {
+    "class_type": "LoadVideo",
+    "inputs": {
+      "file": "dancing.mp4"
+    },
+    "_meta": {
+      "title": "LoadVideo"
+    }
+  },
+  "33": {
+    "class_type": "LoadVideo",
+    "inputs": {
+      "file": "dancing_mask.mp4"
+    },
+    "_meta": {
+      "title": "LoadVideo"
+    }
+  },
+  "24": {
+    "class_type": "CameraIntrinsics",
+    "inputs": {
+      "matrix": "[[[3.2782e+03, 0.0000e+00, 9.6000e+02],\n[0.0000e+00, 2.4555e+03, 5.4000e+02],\n[0.0000e+00, 0.0000e+00, 1.0000e+00]]]"
+    },
+    "_meta": {
+      "title": "CameraIntrinsics"
+    }
+  },
+  "26": {
+    "class_type": "LoadGVHMRModels",
+    "inputs": {
+      "model_path_override": "",
+      "precision": "auto",
+      "attention": "auto",
+      "load_dpvo": true
+    },
+    "_meta": {
+      "title": "LoadGVHMRModels"
+    }
+  },
+  "34": {
+    "class_type": "GVHMRInference",
+    "inputs": {
+      "video": [
+        "32",
+        0
+      ],
+      "video_mask": [
+        "33",
+        0
+      ],
+      "config": [
+        "26",
+        0
+      ],
+      "intrinsics": [
+        "24",
+        0
+      ],
+      "moving_camera": true,
+      "focal_length_mm": 0,
+      "bbox_scale": 1.2,
+      "vo_method": "simple_vo",
+      "vo_scale": 0.5,
+      "vo_step": 8,
+      "chunk_size": 32
+    },
+    "_meta": {
+      "title": "GVHMRInference"
+    }
+  }
+}

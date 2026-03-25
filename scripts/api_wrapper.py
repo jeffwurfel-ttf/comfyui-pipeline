@@ -51,6 +51,13 @@ COMFYUI_INPUT_DIR = Path(os.environ.get("COMFYUI_INPUT_DIR", "/app/ComfyUI/input
 OUTPUT_MAX_AGE_HOURS = float(os.environ.get("OUTPUT_MAX_AGE_HOURS", "24"))
 OUTPUT_MAX_SIZE_GB = float(os.environ.get("OUTPUT_MAX_SIZE_GB", "10"))
 
+# VRAM purge settings
+VRAM_PURGE_THRESHOLD_MB = int(os.environ.get("VRAM_PURGE_THRESHOLD_MB", "1500"))
+COMFYUI_RESTART_TIMEOUT = int(os.environ.get("COMFYUI_RESTART_TIMEOUT", "120"))
+
+import subprocess
+import signal
+
 
 # =============================================================================
 # Model Profiles
@@ -610,6 +617,281 @@ async def load_model(request: LoadRequest):
 @app.post("/model/unload")
 async def unload_model():
     return profile_mgr.unload()
+
+@app.post("/vram/purge")
+async def purge_vram():
+    """
+    Nuclear VRAM cleanup. **Guarantees** GPU memory is freed.
+    
+    Escalation strategy:
+      1. Reset profile state
+      2. Interrupt any running workflow
+      3. ComfyUI /free (clears ComfyUI's model cache)
+      4. Queue VRAMPurge node (clears custom node caches from inside process)
+      5. If still above threshold: **restart ComfyUI process** (guaranteed clean)
+      6. Wait for ComfyUI to be healthy before returning
+    
+    The restart step is the key guarantee — process death releases all VRAM.
+    Custom nodes load models via PyTorch directly, bypassing ComfyUI's model
+    manager. Only process termination reliably frees that memory.
+    """
+    vram_before = profile_mgr.get_vram_info()
+    before_mb = vram_before["vram_used_mb"]
+    
+    print(f"[VRAMPurge] Starting — {before_mb:.0f}MB used")
+    
+    # Already clean?
+    if before_mb < VRAM_PURGE_THRESHOLD_MB:
+        print(f"[VRAMPurge] Already clean ({before_mb:.0f}MB < {VRAM_PURGE_THRESHOLD_MB}MB)")
+        return {
+            "success": True,
+            "vram_before_mb": round(before_mb),
+            "vram_after_mb": round(before_mb),
+            "vram_freed_mb": 0,
+            "method": "already_clean",
+        }
+    
+    # Step 1: Reset profile state
+    profile_mgr.current_profile = None
+    profile_mgr.loaded_at = None
+    profile_mgr.load_time_ms = None
+    
+    # Step 2: Interrupt running work
+    try:
+        requests.post(f"{COMFYUI_URL}/interrupt", timeout=5)
+        time.sleep(0.5)
+    except Exception:
+        pass
+    
+    # Step 3: ComfyUI /free
+    try:
+        requests.post(f"{COMFYUI_URL}/free",
+                      json={"unload_models": True, "free_memory": True}, timeout=30)
+        time.sleep(1)
+    except Exception as e:
+        print(f"[VRAMPurge] /free warning: {e}")
+    
+    # Check if /free was enough
+    vram_mid = profile_mgr.get_vram_info()
+    mid_mb = vram_mid["vram_used_mb"]
+    
+    if mid_mb < VRAM_PURGE_THRESHOLD_MB:
+        freed = before_mb - mid_mb
+        print(f"[VRAMPurge] /free sufficient — {mid_mb:.0f}MB (freed {freed:.0f}MB)")
+        return {
+            "success": True,
+            "vram_before_mb": round(before_mb),
+            "vram_after_mb": round(mid_mb),
+            "vram_freed_mb": round(max(0, freed)),
+            "method": "comfyui_free",
+        }
+    
+    # Step 4: Queue VRAMPurge node (runs inside ComfyUI's process)
+    print(f"[VRAMPurge] /free insufficient ({mid_mb:.0f}MB) — running VRAMPurge node")
+    purge_report = ""
+    try:
+        purge_workflow = {
+            "1": {
+                "class_type": "VRAMPurge",
+                "inputs": {"confirm": True},
+                "_meta": {"title": "VRAM Purge"}
+            }
+        }
+        prompt_id = profile_mgr._queue_prompt(purge_workflow)
+        
+        start = time.time()
+        while time.time() - start < 30:
+            try:
+                r = requests.get(f"{COMFYUI_URL}/history/{prompt_id}", timeout=10)
+                if r.status_code == 200:
+                    data = r.json()
+                    if prompt_id in data:
+                        history = data[prompt_id]
+                        status = history.get("status", {})
+                        if status.get("completed") or status.get("status_str") == "error":
+                            outputs = history.get("outputs", {})
+                            for nid, out in outputs.items():
+                                if "text" in out:
+                                    texts = out["text"]
+                                    if isinstance(texts, list) and texts:
+                                        purge_report = texts[0]
+                            break
+            except Exception:
+                pass
+            time.sleep(0.5)
+    except Exception as e:
+        print(f"[VRAMPurge] VRAMPurge node failed: {e}")
+    
+    # Check if node purge was enough
+    time.sleep(1)
+    vram_after_node = profile_mgr.get_vram_info()
+    after_node_mb = vram_after_node["vram_used_mb"]
+    
+    if after_node_mb < VRAM_PURGE_THRESHOLD_MB:
+        freed = before_mb - after_node_mb
+        print(f"[VRAMPurge] Node purge sufficient — {after_node_mb:.0f}MB (freed {freed:.0f}MB)")
+        return {
+            "success": True,
+            "vram_before_mb": round(before_mb),
+            "vram_after_mb": round(after_node_mb),
+            "vram_freed_mb": round(max(0, freed)),
+            "method": "vram_purge_node",
+            "report": purge_report,
+        }
+    
+    # Step 5: RESTART COMFYUI PROCESS — guaranteed VRAM release
+    print(f"[VRAMPurge] Node purge insufficient ({after_node_mb:.0f}MB) — restarting ComfyUI process")
+    restart_result = _restart_comfyui_process()
+    
+    if restart_result["success"]:
+        vram_final = profile_mgr.get_vram_info()
+        final_mb = vram_final["vram_used_mb"]
+        freed = before_mb - final_mb
+        print(f"[VRAMPurge] ComfyUI restarted — {final_mb:.0f}MB (freed {freed:.0f}MB, took {restart_result['restart_time_s']:.1f}s)")
+        return {
+            "success": True,
+            "vram_before_mb": round(before_mb),
+            "vram_after_mb": round(final_mb),
+            "vram_freed_mb": round(max(0, freed)),
+            "method": "process_restart",
+            "restart_time_s": restart_result["restart_time_s"],
+            "report": purge_report,
+        }
+    else:
+        print(f"[VRAMPurge] CRITICAL: ComfyUI restart failed — {restart_result['error']}")
+        return {
+            "success": False,
+            "vram_before_mb": round(before_mb),
+            "vram_after_mb": round(after_node_mb),
+            "vram_freed_mb": round(max(0, before_mb - after_node_mb)),
+            "method": "restart_failed",
+            "error": restart_result["error"],
+            "report": purge_report,
+        }
+
+
+def _find_comfyui_pid() -> Optional[int]:
+    """Find the ComfyUI main process PID."""
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "python.*main.py.*--listen"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            pids = [int(p.strip()) for p in result.stdout.strip().split("\n") if p.strip()]
+            if pids:
+                return pids[0]
+    except Exception:
+        pass
+    
+    # Fallback: check /proc for ComfyUI
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "ComfyUI/main.py"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            pids = [int(p.strip()) for p in result.stdout.strip().split("\n") if p.strip()]
+            if pids:
+                return pids[0]
+    except Exception:
+        pass
+    
+    return None
+
+
+def _restart_comfyui_process() -> dict:
+    """
+    Kill and relaunch the ComfyUI process.
+    
+    The wrapper service (this process) stays alive. Only ComfyUI restarts.
+    Returns {success, restart_time_s, error}.
+    """
+    restart_start = time.time()
+    
+    # Find ComfyUI PID
+    pid = _find_comfyui_pid()
+    if not pid:
+        return {"success": False, "restart_time_s": 0, "error": "Could not find ComfyUI process"}
+    
+    print(f"[VRAMPurge] Found ComfyUI PID: {pid}")
+    
+    # Kill the process
+    try:
+        os.kill(pid, signal.SIGTERM)
+        print(f"[VRAMPurge] Sent SIGTERM to PID {pid}")
+        
+        # Wait for process to die (up to 10s)
+        for _ in range(20):
+            try:
+                os.kill(pid, 0)  # Check if still alive
+                time.sleep(0.5)
+            except ProcessLookupError:
+                print(f"[VRAMPurge] ComfyUI process terminated")
+                break
+        else:
+            # Still alive — SIGKILL
+            print(f"[VRAMPurge] SIGTERM timeout — sending SIGKILL")
+            try:
+                os.kill(pid, signal.SIGKILL)
+                time.sleep(1)
+            except ProcessLookupError:
+                pass
+    except ProcessLookupError:
+        print(f"[VRAMPurge] Process already dead")
+    except Exception as e:
+        return {"success": False, "restart_time_s": 0, "error": f"Kill failed: {e}"}
+    
+    # Wait a moment for VRAM to be released by the OS
+    time.sleep(2)
+    
+    # Relaunch ComfyUI
+    comfyui_listen = os.environ.get("COMFYUI_LISTEN", "0.0.0.0")
+    comfyui_port = os.environ.get("COMFYUI_PORT", "8188")
+    
+    try:
+        print(f"[VRAMPurge] Relaunching ComfyUI on port {comfyui_port}...")
+        subprocess.Popen(
+            [
+                "python", "main.py",
+                "--listen", comfyui_listen,
+                "--port", comfyui_port,
+                "--preview-method", "auto",
+            ],
+            cwd="/app/ComfyUI",
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as e:
+        return {"success": False, "restart_time_s": 0, "error": f"Relaunch failed: {e}"}
+    
+    # Wait for ComfyUI to be healthy
+    print(f"[VRAMPurge] Waiting for ComfyUI to be ready...")
+    healthy = False
+    timeout = COMFYUI_RESTART_TIMEOUT
+    wait_start = time.time()
+    
+    while time.time() - wait_start < timeout:
+        try:
+            r = requests.get(f"{COMFYUI_URL}/system_stats", timeout=5)
+            if r.status_code == 200:
+                healthy = True
+                break
+        except Exception:
+            pass
+        time.sleep(2)
+        elapsed = int(time.time() - wait_start)
+        if elapsed % 10 == 0:
+            print(f"[VRAMPurge] Still waiting... ({elapsed}s)")
+    
+    restart_time = time.time() - restart_start
+    
+    if healthy:
+        return {"success": True, "restart_time_s": round(restart_time, 1), "error": None}
+    else:
+        return {"success": False, "restart_time_s": round(restart_time, 1),
+                "error": f"ComfyUI did not become healthy within {timeout}s"}
 
 @app.get("/model/status")
 async def model_status():

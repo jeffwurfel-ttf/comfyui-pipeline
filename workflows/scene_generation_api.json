@@ -1,0 +1,193 @@
+{
+  "75": {
+    "class_type": "MultibandLoad",
+    "inputs": {
+      "image": "scene_multiband.npz",
+      "normalize": true
+    },
+    "_meta": {
+      "title": "MultibandLoad"
+    }
+  },
+  "74": {
+    "class_type": "LoadSAM3DModel",
+    "inputs": {
+      "attn_backend": "flash_attn",
+      "compile": true,
+      "precision": "auto"
+    },
+    "_meta": {
+      "title": "LoadSAM3DModel"
+    }
+  },
+  "78": {
+    "class_type": "MultibandToMasks",
+    "inputs": {
+      "multiband": [
+        "75",
+        0
+      ],
+      "channels": "",
+      "auto_detect_masks": true
+    },
+    "_meta": {
+      "title": "MultibandToMasks"
+    }
+  },
+  "77": {
+    "class_type": "MultibandToImage",
+    "inputs": {
+      "multiband": [
+        "75",
+        0
+      ],
+      "channels": "0,1,2"
+    },
+    "_meta": {
+      "title": "MultibandToImage"
+    }
+  },
+  "59": {
+    "class_type": "SAM3D_DepthEstimate",
+    "inputs": {
+      "depth_model": [
+        "74",
+        0
+      ],
+      "image": [
+        "77",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "SAM3D_DepthEstimate"
+    }
+  },
+  "99": {
+    "class_type": "PreviewImage",
+    "inputs": {
+      "images": [
+        "77",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "PreviewImage"
+    }
+  },
+  "80": {
+    "class_type": "SAM3DSceneGenerate",
+    "inputs": {
+      "generator": [
+        "74",
+        1
+      ],
+      "slat_decoder_gs": [
+        "74",
+        2
+      ],
+      "slat_decoder_mesh": [
+        "74",
+        3
+      ],
+      "image": [
+        "77",
+        0
+      ],
+      "masks": [
+        "78",
+        0
+      ],
+      "intrinsics": [
+        "59",
+        0
+      ],
+      "pointmap": [
+        "59",
+        1
+      ],
+      "seed": 42,
+      "stage1_steps": "fixed",
+      "stage1_cfg": 12,
+      "stage1_cfg_pm": 7.5,
+      "stage2_steps": 0,
+      "stage2_cfg": 12,
+      "with_postprocess": 5,
+      "simplify": false,
+      "add_textures": 0.95,
+      "texture_mode": false,
+      "texture_size": "fast",
+      "stage1_batch_size": 1024
+    },
+    "_meta": {
+      "title": "SAM3DSceneGenerate"
+    }
+  },
+  "82": {
+    "class_type": "SAM3D_ScenePoseOptimize",
+    "inputs": {
+      "output_folder": [
+        "80",
+        0
+      ],
+      "optimization_mode": "pose_only"
+    },
+    "_meta": {
+      "title": "SAM3D_ScenePoseOptimize"
+    }
+  },
+  "100": {
+    "class_type": "SAM3D_ProjectionOverlay",
+    "inputs": {
+      "pose_opt_folder": [
+        "82",
+        0
+      ],
+      "render_mode": "3d_mesh_textured",
+      "point_size": 2,
+      "alpha": 0.6
+    },
+    "_meta": {
+      "title": "SAM3D_ProjectionOverlay"
+    }
+  },
+  "106": {
+    "class_type": "GeomPackLoadMeshBatch",
+    "inputs": {
+      "folder_path": [
+        "82",
+        0
+      ],
+      "start_index": 0,
+      "max_meshes": -1
+    },
+    "_meta": {
+      "title": "GeomPackLoadMeshBatch"
+    }
+  },
+  "108": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "100",
+        0
+      ],
+      "filename_prefix": "overlay"
+    },
+    "_meta": {
+      "title": "SaveImage"
+    }
+  },
+  "87": {
+    "class_type": "GeomPackCombineMeshesBatch",
+    "inputs": {
+      "meshes": [
+        "106",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "GeomPackCombineMeshesBatch"
+    }
+  }
+}

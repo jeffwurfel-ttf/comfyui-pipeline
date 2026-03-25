@@ -1,0 +1,192 @@
+{
+  "1": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "elephant.png"
+    }
+  },
+  "2": {
+    "class_type": "LoadSAM3DModel",
+    "inputs": {
+      "model_tag": "hf",
+      "compile": false,
+      "use_gpu_cache": true,
+      "dtype": "bfloat16"
+    }
+  },
+  "3": {
+    "class_type": "InvertMask",
+    "inputs": {
+      "mask": [
+        "1",
+        1
+      ]
+    }
+  },
+  "4": {
+    "class_type": "SAM3D_DepthEstimate",
+    "inputs": {
+      "depth_model": [
+        "2",
+        0
+      ],
+      "image": [
+        "1",
+        0
+      ]
+    }
+  },
+  "5": {
+    "class_type": "SAM3DSparseGen",
+    "inputs": {
+      "ss_generator": [
+        "2",
+        1
+      ],
+      "image": [
+        "1",
+        0
+      ],
+      "mask": [
+        "3",
+        0
+      ],
+      "seed": 42,
+      "pointmap_path": [
+        "4",
+        1
+      ],
+      "stage1_inference_steps": 25,
+      "stage1_cfg_strength": 7.0,
+      "use_stage1_distillation": false
+    }
+  },
+  "6": {
+    "class_type": "SAM3DSLATGen",
+    "inputs": {
+      "slat_generator": [
+        "2",
+        2
+      ],
+      "sparse_structure": [
+        "5",
+        0
+      ],
+      "image": [
+        "1",
+        0
+      ],
+      "mask": [
+        "3",
+        0
+      ],
+      "seed": 42,
+      "stage2_inference_steps": 25,
+      "stage2_cfg_strength": 5.0,
+      "use_stage2_distillation": false
+    }
+  },
+  "7": {
+    "class_type": "SAM3DGaussianDecode",
+    "inputs": {
+      "slat_decoder_gs": [
+        "2",
+        3
+      ],
+      "slat": [
+        "6",
+        0
+      ],
+      "image": [
+        "1",
+        0
+      ],
+      "mask": [
+        "3",
+        0
+      ],
+      "seed": 42,
+      "save_ply": true
+    }
+  },
+  "8": {
+    "class_type": "SAM3DMeshDecode",
+    "inputs": {
+      "slat_decoder_mesh": [
+        "2",
+        4
+      ],
+      "slat": [
+        "6",
+        0
+      ],
+      "image": [
+        "1",
+        0
+      ],
+      "mask": [
+        "3",
+        0
+      ],
+      "seed": 42,
+      "save_glb": true,
+      "simplify": 0.95
+    }
+  },
+  "9": {
+    "class_type": "SAM3DTextureBake",
+    "inputs": {
+      "embedders": [
+        "2",
+        5
+      ],
+      "glb_path": [
+        "8",
+        0
+      ],
+      "ply_path": [
+        "7",
+        0
+      ],
+      "image": [
+        "1",
+        0
+      ],
+      "mask": [
+        "3",
+        0
+      ],
+      "seed": 42,
+      "bake_mode": "fast",
+      "texture_resolution": 1024,
+      "render_backend": "nvdiffrast"
+    }
+  },
+  "10": {
+    "class_type": "SAM3D_PreviewPointCloud",
+    "inputs": {
+      "file_path": [
+        "4",
+        2
+      ]
+    }
+  },
+  "11": {
+    "class_type": "MaskPreview",
+    "inputs": {
+      "mask": [
+        "3",
+        0
+      ]
+    }
+  },
+  "12": {
+    "class_type": "Preview3D",
+    "inputs": {
+      "model_file": [
+        "9",
+        0
+      ]
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "1": {
+    "class_type": "VHS_LoadVideoPath",
+    "inputs": {
+      "video": "/app/ComfyUI/input/video.mp4",
+      "force_rate": 0,
+      "force_size": "Disabled",
+      "custom_width": 0,
+      "custom_height": 0,
+      "frame_load_cap": 0,
+      "skip_first_frames": 0,
+      "select_every_nth": 1
+    },
+    "_meta": {
+      "title": "Load Video Path"
+    }
+  },
+  "2": {
+    "class_type": "OnnxDetectionModelLoader",
+    "inputs": {
+      "vitpose_model": "onnx/wholebody/vitpose-l-wholebody.onnx",
+      "yolo_model": "process_checkpoint/det/yolov10m.onnx",
+      "onnx_device": "CUDAExecutionProvider"
+    },
+    "_meta": {
+      "title": "ONNX Detection Model Loader"
+    }
+  },
+  "3": {
+    "class_type": "MultiPersonBboxDetector",
+    "inputs": {
+      "model": ["2", 0],
+      "images": ["1", 0],
+      "confidence_threshold": 0.5,
+      "max_people": 10
+    },
+    "_meta": {
+      "title": "Multi-Person Bbox Detector"
+    }
+  },
+  "4": {
+    "class_type": "SaveBboxesJSON",
+    "inputs": {
+      "bboxes_json": ["3", 0],
+      "filename_prefix": "bboxes"
+    },
+    "_meta": {
+      "title": "Save Bboxes JSON"
+    }
+  }
+}

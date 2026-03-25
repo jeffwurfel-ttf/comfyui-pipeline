@@ -1,0 +1,26 @@
+{
+  "11": {
+    "class_type": "LoadSMPL",
+    "inputs": {
+      "file_path": "smpl_params_tennis.npz"
+    },
+    "_meta": {
+      "title": "LoadSMPL"
+    }
+  },
+  "10": {
+    "class_type": "SMPLtoBVH",
+    "inputs": {
+      "npz_path": [
+        "11",
+        0
+      ],
+      "output_path": "output/motion.bvh",
+      "fps": 30,
+      "scale": 1
+    },
+    "_meta": {
+      "title": "SMPLtoBVH"
+    }
+  }
+}
