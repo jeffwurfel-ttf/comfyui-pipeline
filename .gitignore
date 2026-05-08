@@ -33,3 +33,14 @@ Thumbs.db
 
 # Docker
 .docker/
+
+# Build artifacts
+build.log
+*.log
+
+# Local backups (git history is the real backup)
+Dockerfile.before_*
+*.bak
+
+# Local archive of retired scripts
+archive/
