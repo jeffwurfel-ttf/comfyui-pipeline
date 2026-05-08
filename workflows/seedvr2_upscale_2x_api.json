@@ -1,0 +1,50 @@
+{
+    "1": {
+        "class_type": "VHS_LoadVideoPath",
+        "inputs": {
+            "video": "PLACEHOLDER",
+            "force_rate": 0,
+            "force_size": "Disabled",
+            "custom_width": 0,
+            "custom_height": 0,
+            "frame_load_cap": 0,
+            "skip_first_frames": 0,
+            "select_every_nth": 1
+        },
+        "_meta": {
+            "title": "Load Source Video"
+        }
+    },
+    "2": {
+        "class_type": "SeedVR2RestorationUpscale",
+        "inputs": {
+            "images": ["1", 0],
+            "target_resolution": 1080,
+            "batch_size": 45,
+            "color_correction": "lab",
+            "uniform_batch_size": true,
+            "seed": 42,
+            "blocks_to_swap": 0,
+            "temporal_overlap": 4,
+            "vae_decode_tiled": false,
+            "max_resolution": 0,
+            "dit_model": "seedvr2_ema_7b_fp16.safetensors",
+            "timeout_seconds": 1800
+        },
+        "_meta": {
+            "title": "SeedVR2 Restoration Upscale (subprocess)"
+        }
+    },
+    "3": {
+        "class_type": "SaveEXRCompressed",
+        "inputs": {
+            "images": ["2", 0],
+            "filename_prefix": "restoration_2x",
+            "compression": "piz",
+            "colorspace": "linear"
+        },
+        "_meta": {
+            "title": "Save EXR Sequence (PIZ Lossless)"
+        }
+    }
+}

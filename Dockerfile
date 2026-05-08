@@ -1,7 +1,8 @@
 # ComfyUI Pipeline Service
 #
 # Active workflows: ESRGAN upscale, Frame Interpolation, WAN video,
-#                   Character Swap, SAM3D Objects, GVHMR Motion Capture
+#                   Character Swap, SAM3D Objects, GVHMR Motion Capture,
+#                   SeedVR2 Restoration Upscale (Stage 1)
 #
 # Build:
 #   docker build -t comfyui-pipeline:latest .
@@ -82,6 +83,32 @@ RUN git clone https://github.com/kijai/ComfyUI-WanAnimatePreprocess.git
 
 # Frame Interpolation — RIFE/FILM for FPS upscaling
 RUN git clone https://github.com/Fannovel16/ComfyUI-Frame-Interpolation.git
+
+# ============================================================
+# CUSTOM NODE — SeedVR2 Video Upscaler (Stage 1 of restoration pipeline)
+# ============================================================
+# Pinned to commit 4490bd1 (Dec 24 2025) — known-good with our wrapper.
+# We REPLACE upstream's __init__.py with a thin wrapper that registers a
+# single ComfyUI node (SeedVR2RestorationUpscale) which delegates heavy
+# work to inference_cli.py running in an isolated _env/ venv. This keeps
+# SeedVR2's diffusers import chain isolated from the main ComfyUI process,
+# preventing it from breaking Wan / SAM3D / other workflows on import.
+#
+# Source: ./seedvr2_wrapper/ in the build context.
+ARG SEEDVR2_COMMIT=4490bd1f482e026674543386bb2a4d176da245b9
+RUN git clone https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git && \
+    cd ComfyUI-SeedVR2_VideoUpscaler && \
+    git checkout ${SEEDVR2_COMMIT} && \
+    mv __init__.py __init__.py.original
+
+COPY seedvr2_wrapper/__init__.py \
+     /app/ComfyUI/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler/__init__.py
+COPY seedvr2_wrapper/seedvr2_subprocess_node.py \
+     /app/ComfyUI/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler/seedvr2_subprocess_node.py
+COPY seedvr2_wrapper/setup_env.sh \
+     /app/ComfyUI/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler/setup_env.sh
+
+RUN chmod +x /app/ComfyUI/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler/setup_env.sh
 
 # SAM 3D Objects — image to 3D mesh
 RUN wget -q "https://cdn.comfy.org/pznodes/comfyui-sam3dobjects/0.0.11/node.zip" -O /tmp/sam3d.zip && \
@@ -265,6 +292,41 @@ RUN if [ -f /app/ComfyUI/custom_nodes/comfyui-sam3dobjects/_env/bin/pip ]; then 
 # at module level). Renaming the dir removes it from the import lookup path.
 RUN mv /app/ComfyUI/custom_nodes/comfyui-sam3dobjects/vendor/cv2 \
        /app/ComfyUI/custom_nodes/comfyui-sam3dobjects/vendor/cv2_disabled || true
+
+# ============================================================
+# SeedVR2 — Isolated venv for diffusers + transformers
+# ============================================================
+# Mirror's SAM3D's pattern: isolated venv prevents SeedVR2's diffusers
+# import chain from breaking the main ComfyUI process. The venv inherits
+# torch/numpy from the system via --system-site-packages, then installs
+# its own diffusers==0.34.0 + transformers<5.0 + peft 0.17.x.
+#
+# Build-time verification asserts the import chain works — we'd rather
+# the build fail here than discover the issue at first runtime.
+
+RUN bash /app/ComfyUI/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler/setup_env.sh
+
+# Verify the venv's import chain. This catches dependency drift if SeedVR2
+# upstream changes their pyproject.toml without us re-pinning. Specifically
+# guards against the HybridCache and attention_dispatch crashes we hit during
+# initial integration.
+RUN /app/ComfyUI/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler/_env/bin/python -c "\
+import sys; \
+import torch; \
+import diffusers; assert diffusers.__version__ == '0.34.0', f'venv: wrong diffusers {diffusers.__version__}'; \
+import transformers; assert transformers.__version__.startswith('4.'), f'venv: wrong transformers {transformers.__version__}'; \
+from diffusers.models.autoencoders.vae import DecoderOutput, DiagonalGaussianDistribution; \
+print(f'[SeedVR2-build] venv OK: torch={torch.__version__} diffusers={diffusers.__version__} transformers={transformers.__version__}')"
+
+# Verify the wrapper module itself imports cleanly in the MAIN python (which
+# is what ComfyUI uses to load custom nodes). Catches syntax errors and
+# missing imports without waiting for ComfyUI to attempt the load at runtime.
+RUN python -c "\
+import sys; \
+sys.path.insert(0, '/app/ComfyUI/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler'); \
+import seedvr2_subprocess_node as m; \
+assert 'SeedVR2RestorationUpscale' in m.NODE_CLASS_MAPPINGS, 'wrapper: node not registered'; \
+print('[SeedVR2-build] wrapper module OK')"
 
 # Final numpy pin — after ALL installs to prevent any dep from upgrading it
 RUN pip install --no-cache-dir "numpy<2"
