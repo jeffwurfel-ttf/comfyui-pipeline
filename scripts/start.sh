@@ -169,10 +169,39 @@ watchdog() {
             break
         fi
 
-        # Clean up any zombie process
-        kill $COMFYUI_PID 2>/dev/null || true
-        pkill -f "python.*main.py.*--listen" 2>/dev/null || true
-        sleep 2
+        # Clean up any zombie process — SIGTERM first, then SIGKILL escalation,
+        # then port-bound stragglers. A truly hung ComfyUI (deadlocked in CUDA
+        # or stuck in a C extension) will ignore SIGTERM, so without escalation
+        # the relaunch below would EADDRINUSE on port 8188 and we'd loop until
+        # MAX_RESTART_FAILURES.
+        echo "[watchdog] Sending SIGTERM to PID $COMFYUI_PID..."
+        kill -TERM $COMFYUI_PID 2>/dev/null || true
+
+        # Give it 10s to exit cleanly
+        for i in 1 2 3 4 5 6 7 8 9 10; do
+            if ! kill -0 $COMFYUI_PID 2>/dev/null; then
+                echo "[watchdog] ComfyUI exited cleanly after ${i}s"
+                break
+            fi
+            sleep 1
+        done
+
+        # Still alive? SIGKILL.
+        if kill -0 $COMFYUI_PID 2>/dev/null; then
+            echo "[watchdog] PID $COMFYUI_PID didn't respond to SIGTERM — sending SIGKILL"
+            kill -KILL $COMFYUI_PID 2>/dev/null || true
+            sleep 2
+        fi
+
+        # Belt-and-suspenders: anything else still bound to the port?
+        # (covers wrapper-spawned ComfyUI processes the watchdog didn't track,
+        # or zombies from a prior crash that pgrep missed earlier)
+        stragglers=$(pgrep -f "python.*main.py.*--listen.*--port.*${COMFYUI_PORT:-8188}" 2>/dev/null || true)
+        if [ -n "$stragglers" ]; then
+            echo "[watchdog] Killing straggler ComfyUI processes: $stragglers"
+            echo "$stragglers" | xargs -r kill -KILL 2>/dev/null || true
+            sleep 1
+        fi
 
         # Relaunch
         echo "[watchdog] Relaunching ComfyUI..."

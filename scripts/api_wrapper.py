@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import random
+import shutil
 import time
 import uuid
 import threading
@@ -580,17 +581,146 @@ class WorkflowResponse(BaseModel):
     error: Optional[str] = None
 
 
+# =============================================================================
+# Health + Disk Helpers (added by hardening pass — Tier 1.2 / 1.6)
+# =============================================================================
+
+# --- ComfyUI live responsiveness probe ---
+# Cached for 5s so Docker's HEALTHCHECK and our own monitoring don't hammer
+# ComfyUI when they happen to poll on similar intervals. The cache also
+# means an in-flight job that briefly stalls /system_stats won't immediately
+# flip the healthcheck red.
+
+_COMFYUI_HEALTH_CACHE = {"checked_at": 0.0, "result": None}
+_COMFYUI_HEALTH_CACHE_TTL = 5.0
+_COMFYUI_HEALTH_TIMEOUT = 5.0
+
+
+def _check_comfyui_responsive() -> dict:
+    """Quick liveness probe of ComfyUI's /system_stats. Cached for 5s.
+
+    Returns dict with: responsive (bool), response_ms (int|None), error (str|None).
+    Distinct from comfy.health_check() — that returns the parsed payload;
+    this one only cares whether the call succeeded.
+    """
+    now = time.time()
+    cached = _COMFYUI_HEALTH_CACHE["result"]
+    if cached is not None and now - _COMFYUI_HEALTH_CACHE["checked_at"] < _COMFYUI_HEALTH_CACHE_TTL:
+        return cached
+
+    started = time.monotonic()
+    result = {"responsive": False, "response_ms": None, "error": None}
+    try:
+        r = requests.get(f"{COMFYUI_URL}/system_stats", timeout=_COMFYUI_HEALTH_TIMEOUT)
+        r.raise_for_status()
+        result["responsive"] = True
+        result["response_ms"] = int((time.monotonic() - started) * 1000)
+    except Exception as e:
+        result["error"] = f"{type(e).__name__}: {e}"
+        result["response_ms"] = int((time.monotonic() - started) * 1000)
+
+    _COMFYUI_HEALTH_CACHE["checked_at"] = now
+    _COMFYUI_HEALTH_CACHE["result"] = result
+    return result
+
+
+# --- Disk free check ---
+# Prevents new jobs when the wrapper's output disk is too full to safely
+# produce output. On these nodes /app/ComfyUI/output is bind-mounted to
+# /home/jeffw/comfyui-output, which lives on the same /home filesystem
+# Docker uses for layers — so headroom is shared. Threshold raised from
+# initial 5GB plan to 10GB to account for this contention.
+#
+# Restoration EXR jobs (40-80GB per 10-min clip) need their own per-job
+# guard layered on top of this — that's a separate item (Roadmap 3.4),
+# blocked on Stage 1 L4 shipping.
+
+DISK_FREE_MIN_GB = 10.0
+DISK_FREE_CHECK_PATH = "/app/ComfyUI/output"
+
+
+def _check_disk_free() -> dict:
+    """Return disk-space status for the wrapper's output directory.
+
+    Returns dict with: ok (bool), free_gb (float|None), required_gb (float),
+    path (str), and (on stat failure) error (str).
+
+    Fails open: if shutil.disk_usage raises, returns ok=True so a transient
+    stat failure doesn't break the entire wrapper. The condition is logged.
+    """
+    try:
+        usage = shutil.disk_usage(DISK_FREE_CHECK_PATH)
+        free_gb = usage.free / (1024 ** 3)
+        return {
+            "ok": free_gb >= DISK_FREE_MIN_GB,
+            "free_gb": round(free_gb, 2),
+            "required_gb": DISK_FREE_MIN_GB,
+            "path": DISK_FREE_CHECK_PATH,
+        }
+    except Exception as e:
+        logger.warning(f"[disk-check] could not stat {DISK_FREE_CHECK_PATH}: {e}")
+        return {
+            "ok": True,
+            "free_gb": None,
+            "required_gb": DISK_FREE_MIN_GB,
+            "path": DISK_FREE_CHECK_PATH,
+            "error": str(e),
+        }
+
+
+def _require_disk_space():
+    """Raise HTTP 507 if free disk is below the threshold.
+
+    Called at the top of every job-submission handler. Returns silently
+    if disk is fine (or if we couldn't check — see _check_disk_free fail-open
+    behavior).
+    """
+    disk = _check_disk_free()
+    if not disk["ok"]:
+        raise HTTPException(
+            status_code=507,  # Insufficient Storage
+            detail={
+                "status": "rejected",
+                "reason": "insufficient_disk",
+                "free_gb": disk["free_gb"],
+                "required_gb": disk["required_gb"],
+                "path": disk["path"],
+                "message": (
+                    f"Wrapper refusing new jobs — only {disk['free_gb']}GB free at "
+                    f"{disk['path']} (need {disk['required_gb']}GB). "
+                    f"Clean up disk space and retry."
+                ),
+            },
+        )
+
+
 # -- Lifecycle ----------------------------------------------------------------
 
 @app.get("/health")
 async def health():
+    """Health check for the wrapper + ComfyUI + disk.
+
+    Preserves every field from the previous implementation exactly, so the
+    gateway's existing health parsing keeps working. Adds new fields:
+      - comfyui_responsive (bool)  — live /system_stats probe (cached 5s)
+      - comfyui_response_ms (int)  — latency of that probe
+      - comfyui_error (str|null)   — error if responsive=false
+      - disk_ok (bool)             — disk free above threshold
+      - disk_free_gb (float|null)  — free space at output path
+      - disk_path (str)            — path being checked
+
+    The top-level "status" field is downgraded to "degraded" if either
+    ComfyUI is unresponsive or disk is below threshold. The Dockerfile /
+    docker-compose HEALTHCHECK reads `comfyui_responsive` specifically.
+    """
+    # Wrapper-side state (existing logic, unchanged)
     try:
         stats = comfy.health_check()
         devices = stats.get("devices", [{}])
         gpu = devices[0] if devices else {}
         vt = gpu.get("vram_total", 0) / (1024 * 1024)
         vf = gpu.get("vram_free", 0) / (1024 * 1024)
-        return {
+        wrapper_payload = {
             "status": "healthy",
             "device": "cuda" if gpu.get("type") == "cuda" else gpu.get("type", "unknown"),
             "gpu_name": gpu.get("name", "unknown"),
@@ -602,10 +732,41 @@ async def health():
             "comfyui": "connected",
         }
     except Exception as e:
-        return {"status": "degraded", "device": "unknown", "gpu_name": "unknown",
-                "model_loaded": False, "model_name": None,
-                "vram_used_mb": 0, "vram_total_mb": 0, "vram_available_mb": 0,
-                "comfyui": "disconnected", "error": str(e)}
+        wrapper_payload = {
+            "status": "degraded",
+            "device": "unknown",
+            "gpu_name": "unknown",
+            "model_loaded": False,
+            "model_name": None,
+            "vram_used_mb": 0,
+            "vram_total_mb": 0,
+            "vram_available_mb": 0,
+            "comfyui": "disconnected",
+            "error": str(e),
+        }
+
+    # New: live ComfyUI responsiveness + disk checks
+    comfyui_live = _check_comfyui_responsive()
+    disk = _check_disk_free()
+
+    # Downgrade overall status if either signal is unhealthy
+    overall_status = wrapper_payload["status"]
+    if not comfyui_live["responsive"]:
+        overall_status = "degraded"
+    if not disk["ok"]:
+        overall_status = "degraded"
+
+    return {
+        **wrapper_payload,
+        "status": overall_status,
+        # New fields
+        "comfyui_responsive": comfyui_live["responsive"],
+        "comfyui_response_ms": comfyui_live["response_ms"],
+        "comfyui_error": comfyui_live["error"],
+        "disk_ok": disk["ok"],
+        "disk_free_gb": disk["free_gb"],
+        "disk_path": disk["path"],
+    }
 
 @app.post("/model/load")
 async def load_model(request: LoadRequest):
@@ -923,6 +1084,7 @@ async def upload_image(image: UploadFile = File(...)):
 
 @app.post("/generate")
 async def generate(request: GenerateRequest):
+    _require_disk_space()
     current = profile_mgr.current_profile
     if not current:
         raise HTTPException(503, "No model loaded. Call POST /model/load first.")
@@ -1038,6 +1200,7 @@ async def list_workflows():
 
 @app.post("/run", response_model=WorkflowResponse)
 async def run_workflow(request: WorkflowRequest):
+    _require_disk_space()
     start_time = time.time()
     try:
         workflow = comfy.inject_inputs(request.workflow, prompt=request.prompt,
@@ -1058,6 +1221,7 @@ async def run_workflow(request: WorkflowRequest):
 async def run_named_workflow(workflow_name: str,
     image: Optional[UploadFile] = File(None), prompt: Optional[str] = Form(None),
     negative_prompt: Optional[str] = Form(None), seed: Optional[int] = Form(None)):
+    _require_disk_space()
     start_time = time.time()
     wf_path = WORKFLOWS_DIR / f"{workflow_name}.json"
     if not wf_path.exists():
@@ -1087,6 +1251,7 @@ async def run_named_workflow(workflow_name: str,
 async def run_named_workflow_raw(workflow_name: str,
     image: Optional[UploadFile] = File(None), prompt: Optional[str] = Form(None),
     negative_prompt: Optional[str] = Form(None), seed: Optional[int] = Form(None)):
+    _require_disk_space()
     wf_path = WORKFLOWS_DIR / f"{workflow_name}.json"
     if not wf_path.exists():
         raise HTTPException(404, f"Workflow not found: {workflow_name}")

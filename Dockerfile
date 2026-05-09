@@ -388,6 +388,8 @@ ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # ============================================================
 EXPOSE 8188 8189
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=3 \
-    CMD curl -f http://localhost:8189/health || exit 1
+HEALTHCHECK --interval=30s --timeout=15s --start-period=180s --retries=3 \
+    CMD curl -fsS http://localhost:8189/health | \
+        python3 -c "import sys,json; d=json.load(sys.stdin); \
+        sys.exit(0 if d.get('comfyui_responsive') is True else 1)" || exit 1
 CMD ["/app/start.sh"]

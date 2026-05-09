@@ -63,9 +63,17 @@ services:
     restart: unless-stopped
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8189/health"]
+      # Reads /health JSON from the wrapper and fails if comfyui_responsive
+      # is not true. With retries=3 × interval=30s, tolerates 90s of
+      # unresponsiveness before flagging the container unhealthy — enough
+      # time for the bash watchdog in start.sh to detect a hang and recover
+      # (~75s worst case after the SIGTERM/SIGKILL escalation patch).
+      # Only persistent failures escalate to autoheal restarting the container.
+      test:
+        - CMD-SHELL
+        - 'curl -fsS http://localhost:8189/health | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get(''comfyui_responsive'') is True else 1)"'
       interval: 30s
-      timeout: 10s
+      timeout: 15s
       retries: 3
       start_period: 180s
 

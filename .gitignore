@@ -44,3 +44,6 @@ Dockerfile.before_*
 
 # Local archive of retired scripts
 archive/
+
+# Hardening pass backups (May 2026)
+*.pre_hardening
