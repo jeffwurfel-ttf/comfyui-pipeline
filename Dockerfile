@@ -161,6 +161,14 @@ COPY custom_nodes/ComfyUI-MultiPersonDetector/__init__.py \
 RUN mkdir -p /app/ComfyUI/custom_nodes/ComfyUI-VRAMPurge
 COPY custom_nodes/ComfyUI-VRAMPurge/__init__.py \
      /app/ComfyUI/custom_nodes/ComfyUI-VRAMPurge/__init__.py
+
+# SaveEXRCompressed — TTF output node for 32-bit float EXR with configurable
+# compression (DWAA/ZIP/PIZ/etc). Required by restoration-upscale-2x workflow.
+# Depends on OpenEXR Python bindings (installed in common deps below).
+RUN mkdir -p /app/ComfyUI/custom_nodes/ComfyUI-SaveEXRCompressed
+COPY custom_nodes/ComfyUI-SaveEXRCompressed/__init__.py \
+     /app/ComfyUI/custom_nodes/ComfyUI-SaveEXRCompressed/__init__.py
+
 # ============================================================
 # PYTHON DEPENDENCIES — Main environment
 # ============================================================
@@ -187,7 +195,8 @@ RUN pip install --no-cache-dir \
     huggingface_hub \
     tqdm \
     piexif \
-    loguru
+    loguru \
+    OpenEXR==3.4.11
 
 # Existing custom node requirements (main env)
 RUN cd /app/ComfyUI/custom_nodes/ComfyUI-Manager && \
