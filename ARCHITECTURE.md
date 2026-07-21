@@ -12,6 +12,12 @@ command or file that established it and the date. All anchors here are from the
 2026-07-20 audit (`.dev/AUDIT_gpu02.md`); re-verify before relying on a value
 that could have moved (VRAM, queue, image tags, package versions).
 
+**Gateway handoff:** the Recognition Layer's cross-team deliverable —
+capability/manifest, contracts, limits, measured numbers for a gateway engineer
+— is `GATEWAY_HANDOFF_RECOGNITION.md` at the **repo root** (tracked, next to this
+file). It is self-contained; register Tier 1 (SAM3) from it without reading the
+workflow JSON.
+
 ---
 
 ## Status table
