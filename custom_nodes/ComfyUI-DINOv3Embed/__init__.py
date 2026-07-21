@@ -8,8 +8,14 @@ CANNOT load DINOv3 — transformers 5.8.0's modeling_utils crashes under torch
 This module imports only main-env-safe things (torch tensor ops, numpy, PIL,
 subprocess); it never imports transformers.
 
-Contract (D037/D038):
-  IN : IMAGE [B,H,W,3] + optional MASK [B,H,W]  (MASK -> masked pool; else global pool)
+Contract (D037/D038/D042):
+  IN : IMAGE (full frame[s]) + MASK [N,H,W] (SAM3's per-instance stack).
+       The worker crops each full frame to the mask's tight bbox and does a
+       SINGLE resize (Phase 6's path) — cropping is INSIDE the node now, so an
+       instance's embedding is independent of its co-detections (D041 fix).
+       One model load serves all N instances (N sequential forwards, no shared
+       window). A single frame broadcasts across N masks; MASK batch of 1 == N=1.
+       No MASK -> one instance per frame, global pool, no crop.
   OUT: STRING (JSON) — both readouts per instance: cls + pool. Raw vectors.
        Feeds SaveVectorJSON (ComfyUI-VectorOut), which agrees on STRING.
 """
@@ -83,23 +89,34 @@ class DINOv3Embed:
             raise ValueError(f"Expected IMAGE [B,H,W,3]; got {tuple(image.shape)}")
         B = image.shape[0]
 
-        # normalize optional mask to a [B',H,W] stack
+        # One instance per mask (SAM3 gives an N-instance MASK stack); a single
+        # mask is a batch of one, handled identically. Without a mask, one
+        # instance per image frame (global pool, no crop). The worker crops each
+        # FULL frame to its mask's tight bbox — no shared window, no uniform size.
         mask_stack = None
         if mask is not None:
-            mstk = mask if mask.ndim == 3 else mask.unsqueeze(0)
-            mask_stack = mstk
+            mask_stack = mask if mask.ndim == 3 else mask.unsqueeze(0)
+            N = mask_stack.shape[0]
+        else:
+            N = B
 
         work_dir = Path(tempfile.mkdtemp(prefix="dinov3_job_"))
         try:
-            items = []
             img_u8 = (image.clamp(0, 1).cpu().numpy() * 255.0).astype(np.uint8)
-            for i in range(B):
-                ip = work_dir / f"img_{i:04d}.png"
-                Image.fromarray(img_u8[i], mode="RGB").save(ip, compress_level=1)
-                item = {"image": str(ip), "mask": None}
+            frame_paths = {}
+            def frame_path(j):
+                if j not in frame_paths:
+                    p = work_dir / f"frame_{j:04d}.png"
+                    Image.fromarray(img_u8[j], mode="RGB").save(p, compress_level=1)
+                    frame_paths[j] = str(p)
+                return frame_paths[j]
+
+            items = []
+            for i in range(N):
+                j = i if i < B else 0          # broadcast a single frame across N masks
+                item = {"image": frame_path(j), "mask": None}
                 if mask_stack is not None:
-                    mi = mask_stack[i] if i < mask_stack.shape[0] else mask_stack[0]
-                    m_u8 = (mi.clamp(0, 1).cpu().numpy() * 255.0).astype(np.uint8)
+                    m_u8 = (mask_stack[i].clamp(0, 1).cpu().numpy() * 255.0).astype(np.uint8)
                     mp = work_dir / f"mask_{i:04d}.png"
                     Image.fromarray(m_u8, mode="L").save(mp)
                     item["mask"] = str(mp)
