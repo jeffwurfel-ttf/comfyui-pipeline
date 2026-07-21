@@ -60,7 +60,7 @@ echo "================================================================"
 # Disk-tight retention policy on this 154GB box:
 #   Keep: latest, pre-hardening, pre-rollback (if exists), most recent SHA
 #   Drop: any other SHA tags
-PROTECTED='^(latest|pre-hardening|pre-rollback)$'
+PROTECTED='^(latest|pre-.*)$'
 
 # Get all SHA tags (anything not protected) sorted by image creation, newest first
 SHA_TAGS=$(docker images comfyui-pipeline --format '{{.Tag}} {{.ID}}' \
