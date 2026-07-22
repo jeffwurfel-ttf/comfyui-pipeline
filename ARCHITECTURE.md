@@ -36,7 +36,7 @@ workflow JSON.
 | DINOv3 (Phase 6b/7) | BAKED: `DINOv3Embed` (subprocess `_env`, transformers 4.57.6, vitl16) + `SaveVectorJSON` live in `/object_info`; Phase 7 acceptance PASS | main env can't load DINOv3 (torch 2.4.1 × transformers 5.8.0 moe, D032) — node shells to `_env`. Emits CLS+pool (D037); STRING-JSON out (D038). Golden still is a stylization (D033/B007) |
 | Custom nodes | 21 dirs; SeedVR2 + DINOv3Embed carry pinned `_env`s | CameraPack checked out twice (collision risk); only SeedVR2/DINOv3Embed self-isolate |
 | Tooling | 8 scripts in `tools/`; all pass syntax | `tools/` is operator-owned; don't edit unasked |
-| Control (guard hook) | `.claude/hooks/guard.py` PreToolUse, MODE=BUILD (6b/7); 20/20 vectors pass post-B010 fix | Crash = fail-open; partial corruption reports green — test BOTH branches (§Control layer) |
+| Control (guard hook) | `.claude/hooks/guard.py` PreToolUse, MODE=SETUP (permanent, D044); 22/22 vectors pass (D046, sha `2a54fb3886cce8eb`) | Crash = fail-open; partial corruption reports green — test BOTH branches (§Control layer) |
 | Known drift | README/CLAUDE.md misstatements; 2 referenced docs absent | See §Known drift; box is authoritative |
 
 ---
@@ -333,8 +333,11 @@ hard `..`-traversal block) and **Bash** (regex blocks: force/protected-branch
 push, bulk `git add`, `rm -rf`, redirects into protected surfaces, docker
 lifecycle, `pip install`, upstream installers, /etc/docker writes, VRAM
 purge/interrupt, GPU reset). MODE widens for container-facing phases (6b/7) and
-narrows back to SETUP after the rebuild. Verify any change to it with the
-20-vector harness `.dev/scratch/phase6/guard_test.py` (both branches).
+narrows back to SETUP after the rebuild — SETUP is the permanent post-container
+state (D044). `WRITE_ALLOW` permanently includes the two tracked living
+deliverables, `ARCHITECTURE.md` and `GATEWAY_HANDOFF_RECOGNITION.md` (the
+latter added 2026-07-22, sha `2a54fb3886cce8eb`, D046). Verify any change to it
+with the 22-vector harness `.dev/scratch/phase6/guard_test.py` (both branches).
 
 **Two load-bearing lessons from the B010 incident (2026-07-21):**
 
