@@ -16,6 +16,11 @@ models_backup_*.tar.gz
 # Installed models JSON (generated)
 models/installed_models.json
 
+# Agent workspace — local operating layer, not a shipped deliverable
+CLAUDE.md
+.dev/
+.claude/
+
 # Python
 __pycache__/
 *.py[cod]
