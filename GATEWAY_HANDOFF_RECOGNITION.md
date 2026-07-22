@@ -72,6 +72,57 @@ gateway preload," not "no models."
   dip, correct detection). **No cap on the number of categories** — 8 categories
   / 15 objects ran in one call, zero errors (Phase 5). Realistic 1–4-word labels
   are nowhere near the per-segment limit.
+- **Vocabulary — attributive adjectives work; relational/prepositional phrases
+  do not.** `"blue hat"` detects correctly (and scored 0.983, top of the probe).
+  This **corrects the fal-era "bare category nouns only" rule**: `adjective +
+  noun` is fine. What fails is relational phrasing — `"dancer in white shirt"`
+  returned 0 on fal. Rule of thumb: `adjective+noun` yes, `noun preposition noun`
+  no. **Misspellings tolerate** — `"thermas"` found the thermos (0.678). (Probe
+  2026-07-21, D045.)
+
+## Reading scores
+
+The `score` field measures **how well the pixels fit the queried noun, not
+whether the detection is correct.** In one vocabulary probe (2026-07-21, D045),
+verified-correct detections spanned **0.63 to 0.983**. Consequences:
+
+- **Do NOT apply a confidence filter.** Any threshold discards good results — a
+  correct detection can sit at 0.63 while a hallucination sits higher (see next
+  section).
+- **Specificity raises the score on identical pixels.** `"ball"` 0.63 →
+  `"basketball"` 0.784 on the *same* object (center_x 2026 vs 2024) — a more
+  specific correct noun scores higher for the same detection.
+- **Attributive adjectives score high.** `"blue hat"` 0.983.
+
+So `score` ranks phrasings of the SAME detection; it does not gate detections
+in or out.
+
+## Absence has no signal — SAM always answers
+
+**SAM 3 returns a box for a queried noun even when that noun is not in the
+frame, and the hallucinated box can OUTSCORE correct detections.** Probe
+(D045): `"elephant"` on a frame containing no elephant returned a box at
+**0.694 — higher than two verified-correct detections that same session
+(thermos 0.678, ball 0.63).** **There is no in-band signal for absence and no
+threshold that separates a hallucination from a correct detection.** Detail:
+
+- **`:N` is a CEILING, not a target — it does not fabricate to quota.**
+  `"elephant:3"` returned 2, not 3.
+- **Hallucinated instances can duplicate.** The two elephant boxes were 2 px
+  apart (center_x 1552, 1554) — the same region twice, not two objects.
+- **`:N` is inert on real detections.** `"person:5"` on the golden frame
+  returned the identical 3 instances at identical scores (0.975/0.971/0.965).
+  Score drift appeared ONLY on the hallucination (0.694 at `:1` vs 0.667 at
+  `:3`). So the count-oracle attribution scheme (§Category attribution) is safe
+  on real content.
+
+**ARCHITECTURAL CONSTRAINT — state plainly: SAM 3 MUST NOT be exposed as
+free-text search over arbitrary nouns.** The hallucination gate is an
+**enumerate-then-ground** pipeline: a VLM (e.g. Gemini) enumerates what is
+*actually present* in the frame, and SAM only grounds nouns drawn from that
+enumeration. This is not a labeling convenience — it is the ONLY protection
+against a confident box on nothing. **Free-text noun entry by an artist has no
+such protection.**
 
 ## Output paths
 
@@ -270,4 +321,3 @@ adversarial.
    boundary.)
 5. Is the ephemeral per-call ~3.7 s DINOv3 load acceptable at your throughput, or
    is a persistent embedding worker warranted? (Tier 2 §Memory regimes.)
-```
