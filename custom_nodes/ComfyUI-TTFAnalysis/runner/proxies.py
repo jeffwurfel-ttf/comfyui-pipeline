@@ -71,7 +71,7 @@ def _dump(d, name, img):
 
 
 def do_shot(sd, out, si, fps, ramp_name, bilateral, flow_pct, fov,
-            dump_n, dump_dir):
+            dump_n, dump_dir, flow_map="sqrt"):
     rec = {"shot": si, "ranges": {}, "proxies": {}}
     depth_shape = sd.shape("depth") if sd.has("depth") else None
     T = depth_shape[0] if depth_shape else None
@@ -134,7 +134,7 @@ def do_shot(sd, out, si, fps, ramp_name, bilateral, flow_pct, fov,
             (np.sqrt(c[:, 0].astype(np.float32) ** 2 + c[:, 1].astype(np.float32) ** 2)
              for _, c in sd.chunks("flow")), pct=flow_pct)
         rec["ranges"]["flow"] = {"lo": lo, "hi": hi, "mode": f"p{flow_pct} clamp",
-                                 "units": "pixels/frame"}
+                                 "units": "pixels/frame", "curve": flow_map}
         pm = out / f"shot_{si:03d}_flow_mag.mp4"
         pw = out / f"shot_{si:03d}_flow_wheel.mp4"
         wm, ww = Mp4Writer(pm, W, H, fps), Mp4Writer(pw, W, H, fps)
@@ -142,8 +142,8 @@ def do_shot(sd, out, si, fps, ramp_name, bilateral, flow_pct, fov,
         last_m = last_w = None
         for start, c in sd.chunks("flow"):
             for j, fr in enumerate(c.astype(np.float32)):
-                im_m = flow_to_magnitude(fr, lo, hi, ramp_name)
-                im_w = flow_to_wheel(fr, lo, hi)
+                im_m = flow_to_magnitude(fr, lo, hi, ramp_name, flow_map)
+                im_w = flow_to_wheel(fr, lo, hi, flow_map)
                 wm.write(im_m); ww.write(im_w)
                 last_m, last_w = im_m, im_w
                 if start + j in picks:
@@ -157,7 +157,7 @@ def do_shot(sd, out, si, fps, ramp_name, bilateral, flow_pct, fov,
         rec["proxies"]["flow_mag"] = {"path": str(pm), "frames": wm.close(expect=T)}
         rec["proxies"]["flow_wheel"] = {"path": str(pw), "frames": ww.close(expect=T)}
         log(f"  flow    -> {pm.name} + {pw.name}  {T} frames  "
-            f"clamp [0, {hi:.3f}] px/frame (p{flow_pct})")
+            f"clamp [0, {hi:.3f}] px/frame (p{flow_pct}, {flow_map})")
     return rec
 
 
@@ -169,7 +169,7 @@ def run_colorize(a):
     fps = man.get("fps", 24.0)
     log(f"{run.name}: {man.get('frames')} frames @ {man.get('res')} {fps} fps, "
         f"{len(man.get('shots', []))} shot(s), ramp={a.depth_ramp}, "
-        f"bilateral={a.bilateral}")
+        f"bilateral={a.bilateral}, flow_map={getattr(a,'flow_map','sqrt')}")
 
     recs = []
     for si, shot in enumerate(man.get("shots", [])):
@@ -178,7 +178,8 @@ def run_colorize(a):
             continue
         log(f"--- shot {si} (source frames {shot['start']}-{shot['end']}) ---")
         r = do_shot(ShotData(d), out, si, fps, a.depth_ramp, a.bilateral,
-                    a.flow_pct, a.fov, a.dump_png, dump_dir)
+                    a.flow_pct, a.fov, a.dump_png, dump_dir,
+                    getattr(a, "flow_map", "sqrt"))
         r["source_start"], r["source_end"] = shot["start"], shot["end"]
         r["source_frames"] = shot["n_frames"]
         for k, v in r["proxies"].items():
@@ -204,7 +205,8 @@ def run_colorize(a):
         json.dumps({"run": str(run), "source": man.get("video"), "fps": fps,
                     "params": {"depth_ramp": a.depth_ramp,
                                "bilateral": a.bilateral,
-                               "flow_pct": a.flow_pct, "fov": a.fov},
+                               "flow_pct": a.flow_pct, "fov": a.fov,
+                               "flow_map": getattr(a, "flow_map", "sqrt")},
                     "shots": recs}, indent=2), encoding="utf-8")
     log(f"proxies.json -> {out/'proxies.json'}")
     if dump_dir.exists():

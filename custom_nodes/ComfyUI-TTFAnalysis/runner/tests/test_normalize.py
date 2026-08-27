@@ -15,8 +15,9 @@ import sys
 import numpy as np
 
 from ..normalize import (
-    BANNED_RAMPS, apply_range, bilateral_depth, flow_clamp, flow_to_magnitude,
-    flow_to_wheel, normals_to_rgb, ramp, shot_range,
+    BANNED_RAMPS, FLOW_MAPS, apply_range, bilateral_depth, bilateral_normals,
+    flow_clamp, flow_to_magnitude, flow_to_wheel, magnitude_curve,
+    normals_to_rgb, ramp, shot_range,
 )
 
 FAIL = []
@@ -138,6 +139,48 @@ def main():
     l_fl = np.zeros((2, H, W), np.float32); l_fl[0] = -5.0
     check("wheel encodes direction (L != R hue)",
           flow_to_wheel(r_fl, 0, 5)[0, 0, 0] != flow_to_wheel(l_fl, 0, 5)[0, 0, 0])
+
+    # ── magnitude tone curves ───────────────────────────────────────────
+    print("\nflow tone curves:")
+    x = np.linspace(0, 1, 257, dtype=np.float32)
+    for mp in FLOW_MAPS:
+        y = magnitude_curve(x, mp)
+        check(f"{mp}: pins both ends",
+              abs(float(y[0])) < 1e-6 and abs(float(y[-1]) - 1.0) < 1e-6,
+              f"{y[0]:.6f}..{y[-1]:.6f}")
+        check(f"{mp}: monotone", bool(np.all(np.diff(y) >= -1e-7)))
+        check(f"{mp}: stays in [0,1]", bool(y.min() >= 0 and y.max() <= 1.0 + 1e-6))
+    lin, sq, lg = (magnitude_curve(x, m) for m in FLOW_MAPS)
+    # the whole point: ordinary motion sits low under linear and must lift
+    q = 0.05   # a frame at 5% of the p99 clamp
+    v = np.float32([q])
+    check("sqrt lifts mid-tones above linear",
+          float(magnitude_curve(v, "sqrt")) > float(magnitude_curve(v, "linear")),
+          f"{float(magnitude_curve(v,'linear')):.4f} -> {float(magnitude_curve(v,'sqrt')):.4f}")
+    check("log lifts further than sqrt",
+          float(magnitude_curve(v, "log")) > float(magnitude_curve(v, "sqrt")),
+          f"{float(magnitude_curve(v,'sqrt')):.4f} -> {float(magnitude_curve(v,'log')):.4f}")
+    check("curves never reorder magnitudes",
+          bool(np.all(np.argsort(sq) == np.argsort(lin))
+               and np.all(np.argsort(lg) == np.argsort(lin))),
+          "a bigger move always reads bigger")
+    try:
+        magnitude_curve(x, "gamma"); ok = False
+    except ValueError:
+        ok = True
+    check("unknown mapping refused", ok)
+
+    # ── post-gradient normals filter ────────────────────────────────────
+    print("\npost-gradient normals filter:")
+    nn = np.zeros((2, 3, 32, 32), np.float32); nn[:, 2] = -1.0
+    nn[:, 0, ::4, ::4] = 0.3            # sparse perturbation
+    nn /= np.linalg.norm(nn, axis=1, keepdims=True)
+    fn = bilateral_normals(nn.copy(), 1.0)
+    ln = np.linalg.norm(fn, axis=1)
+    check("output stays unit length", float(np.abs(ln - 1).max()) < 1e-5,
+          f"max |1-|n|| = {float(np.abs(ln-1).max()):.2e}")
+    check("strength 0 is a no-op",
+          bool(np.array_equal(bilateral_normals(nn.copy(), 0.0), nn)))
 
     # ── ramps ───────────────────────────────────────────────────────────
     print("\nramps:")

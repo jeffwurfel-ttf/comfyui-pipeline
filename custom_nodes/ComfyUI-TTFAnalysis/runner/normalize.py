@@ -115,18 +115,55 @@ def normals_to_rgb(n):
     return np.clip(v, 0, 255).astype(np.uint8)
 
 
-def flow_to_magnitude(flow, lo, hi, name="gray"):
+FLOW_MAPS = ("linear", "sqrt", "log")
+LOG_K = 32.0
+
+
+def magnitude_curve(x01, mapping="sqrt", k=LOG_K):
+    """Tone curve for flow magnitude, applied AFTER the shot-scoped clamp.
+
+    The p99 clamp fixes the outlier problem but not the distribution problem:
+    flow magnitude is heavy-tailed, so under a linear map a shot containing a
+    real 74 px/frame move pushes all ordinary motion into the bottom few percent
+    of the ramp and it reads as black. The clamp is not at fault — the linear
+    map is.
+
+    All three curves are monotone and pin both ends (0->0, 1->1), so the big
+    move still saturates and nothing is reordered; only the mid-tones lift.
+      linear  x
+      sqrt    x**0.5          moderate lift, the default
+      log     log1p(kx)/log1p(k)   aggressive lift for very heavy tails
+    """
+    x = np.clip(x01, 0.0, 1.0)
+    if mapping == "linear":
+        return x
+    if mapping == "sqrt":
+        return np.sqrt(x)
+    if mapping == "log":
+        return np.log1p(x * k) / np.log1p(k)
+    raise ValueError(f"unknown flow mapping {mapping!r}; expected {FLOW_MAPS}")
+
+
+def flow_magnitude(flow):
+    f = flow.transpose(1, 2, 0) if flow.shape[0] == 2 else flow
+    return np.sqrt(f[..., 0].astype(np.float32) ** 2
+                   + f[..., 1].astype(np.float32) ** 2)
+
+
+def flow_to_magnitude(flow, lo, hi, name="gray", mapping="sqrt", k=LOG_K):
     """Magnitude heatmap. Reads better than the wheel while scrubbing, because
     the eye tracks brightness change over time far better than hue change."""
-    f = flow.transpose(1, 2, 0) if flow.shape[0] == 2 else flow
-    mag = np.sqrt(f[..., 0].astype(np.float32) ** 2 + f[..., 1].astype(np.float32) ** 2)
-    return ramp(apply_range(mag, lo, hi), name)
+    mag = flow_magnitude(flow)
+    return ramp(magnitude_curve(apply_range(mag, lo, hi), mapping, k), name)
 
 
-def flow_to_wheel(flow, lo, hi):
+def flow_to_wheel(flow, lo, hi, mapping="sqrt", k=LOG_K):
     """Direction wheel: hue = direction, value = clamped magnitude.
     Reads better than the heatmap on a PAUSED frame, where the eye can compare
-    hues side by side. Both are emitted; they answer different questions."""
+    hues side by side. Both are emitted; they answer different questions.
+
+    The value channel takes the same tone curve as the heatmap — otherwise the
+    two proxies disagree about how energetic the same frame is."""
     f = flow.transpose(1, 2, 0) if flow.shape[0] == 2 else flow
     fx, fy = f[..., 0].astype(np.float32), f[..., 1].astype(np.float32)
     mag = np.sqrt(fx ** 2 + fy ** 2)
@@ -134,8 +171,32 @@ def flow_to_wheel(flow, lo, hi):
     hsv = np.zeros(mag.shape + (3,), np.uint8)
     hsv[..., 0] = (ang * 90.0 / np.pi).astype(np.uint8)    # OpenCV hue 0..179
     hsv[..., 1] = 255
-    hsv[..., 2] = (apply_range(mag, lo, hi) * 255).astype(np.uint8)
+    hsv[..., 2] = (magnitude_curve(apply_range(mag, lo, hi), mapping, k)
+                   * 255).astype(np.uint8)
     return cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
+
+
+def bilateral_normals(n, strength=1.0, d_px=15, sigma_color=0.15):
+    """POST-gradient filter: smooths the normal VECTORS, then renormalizes.
+
+    Kept for comparison against the pre-gradient path, not because it is
+    expected to win. By the time normals exist, depth noise has already been
+    amplified by differentiation and is no longer separable from real surface
+    detail — a filter here cannot tell them apart, whereas the same filter on
+    depth still can, because there the noise is small and the edges are large.
+    n is (t,3,H,W); returns the same shape, unit length.
+    """
+    if strength <= 0:
+        return n
+    dd = int(max(3, round(float(d_px) * strength)))
+    sc = float(sigma_color) * strength
+    out = np.empty_like(n, np.float32)
+    for i in range(len(n)):
+        img = np.ascontiguousarray(n[i].transpose(1, 2, 0), np.float32)
+        f = cv2.bilateralFilter(img, dd, sc, max(dd, 1.0))
+        ln = np.linalg.norm(f, axis=-1, keepdims=True)
+        out[i] = (f / np.maximum(ln, 1e-8)).transpose(2, 0, 1)
+    return out
 
 
 def bilateral_depth(d, strength=1.0, d_px=15, sigma_color=0.08):

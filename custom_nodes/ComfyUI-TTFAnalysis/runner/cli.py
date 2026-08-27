@@ -240,6 +240,9 @@ def main(argv=None):
     co.add_argument("--depth-ramp", default="gray")
     co.add_argument("--bilateral", type=float, default=1.0)
     co.add_argument("--flow-pct", type=float, default=99.0)
+    co.add_argument("--flow-map", default="sqrt", choices=["linear", "sqrt", "log"],
+                    help="tone curve applied after the p99 clamp; flow magnitude "
+                         "is heavy-tailed and reads black under a linear map")
     co.add_argument("--fov", type=float, default=60.0)
     co.add_argument("--dump-png", type=int, default=6)
     co.set_defaults(fn=cmd_colorize)
