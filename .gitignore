@@ -47,3 +47,37 @@ archive/
 
 # Hardening pass backups (May 2026)
 *.pre_hardening
+
+# ---------------------------------------------------------------------------
+# Vendored custom_node model weights.
+#
+# The node packs under custom_nodes/ are vendored source (see
+# .dev/VENDORED_NODES.md). The binary model weights that ship INSIDE those
+# upstream repos are deliberately NOT committed — the pinned clone in the
+# Dockerfile is what puts them in the image, so git carrying them buys nothing
+# and costs ~30 MB of undiffable blobs.
+#
+# Every path below is recorded in .dev/VENDORED_NODES.md with size, sha256,
+# upstream repo, pinned commit and the upstream git blob hash. Do not add a
+# weight here without adding it there.
+# ---------------------------------------------------------------------------
+custom_nodes/ComfyUI-KJNodes/intrinsic_loras/*.safetensors
+custom_nodes/ComfyUI-WanVideoWrapper/configs/T5_tokenizer/spiece.model
+custom_nodes/ComfyUI-WanVideoWrapper/fantasyportrait/models/*.onnx
+custom_nodes/ComfyUI-WanVideoWrapper/multitalk/encoded_silence.safetensors
+
+# Build output that must never be vendored: the sam3dobjects / SeedVR2
+# subprocess venvs are rebuilt by the Dockerfile (sam3dobjects/_env alone is
+# 6.9 GB inside the container).
+custom_nodes/*/_env/
+
+# Re-include vendored upstream content that generic rules above would drop.
+# `*.bak` (line ~43) exists for host-side Dockerfile.before_* backups. Three
+# .bak files ship INSIDE the sam3dobjects 0.0.11 zip (they carry the zip's own
+# mtime, 2025-12-09) and are upstream source, not local edits.
+!custom_nodes/**/*.bak
+
+# Operating layer — never committed
+.dev/
+.claude/
+CLAUDE.md
