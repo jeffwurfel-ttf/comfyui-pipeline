@@ -22,9 +22,9 @@ VDA_CHECKPOINT = CKPT / "video_depth_anything_vits.pth"
 SEARAFT_HF = "MemorySlices/Tartan-C-T-TSKH-spring540x960-M"
 SEARAFT_CFG = "config/eval/spring-M.json"
 
-# video_depth_anything/video_depth.py:29 — the packaged entry pads any clip
-# shorter than this up to a full window, so chunking below it is free.
-VDA_INFER_LEN = 32
+# NOTE: VDA's 32-frame window used to live here as VDA_INFER_LEN and was read
+# directly by the chunker. It now lives on the provider as Cost.window, because
+# it is a property of that model rather than a global of the runner.
 
 
 def check():

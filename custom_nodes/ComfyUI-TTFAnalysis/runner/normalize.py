@@ -176,6 +176,57 @@ def flow_to_wheel(flow, lo, hi, mapping="sqrt", k=LOG_K):
     return cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
 
 
+def flow_to_arrows(flow, lo, hi, grid=32, mapping="sqrt", k=LOG_K,
+                   bg=18, min_px=1.5):
+    """Sparse arrow field on a fixed pixel grid.
+
+    The heatmap says how much and the wheel says which way, but the wheel needs
+    the viewer to decode a hue; arrows say direction with no legend at all.
+    Cell flow is the MEAN over the cell, not a point sample — point sampling a
+    dense field on a 32 px grid aliases badly on fine motion and produces
+    arrows that flicker between neighbouring frames for no real reason.
+
+    Length is driven through the same tone curve as the other two proxies, so
+    all three agree about how energetic a frame is, and is capped at the cell
+    size so a whip-pan does not turn the frame into overlapping streaks.
+    """
+    f = flow.transpose(1, 2, 0) if flow.shape[0] == 2 else flow
+    fx = f[..., 0].astype(np.float32)
+    fy = f[..., 1].astype(np.float32)
+    H, W = fx.shape
+    img = np.full((H, W, 3), bg, np.uint8)
+
+    gy, gx = max(1, int(grid)), max(1, int(grid))
+    ny, nx = H // gy, W // gx
+    if ny == 0 or nx == 0:
+        return img
+    # block-mean by reshape: exact, and far cheaper than a resize per frame
+    cy, cx = ny * gy, nx * gx
+    mx = fx[:cy, :cx].reshape(ny, gy, nx, gx).mean(axis=(1, 3))
+    my = fy[:cy, :cx].reshape(ny, gy, nx, gx).mean(axis=(1, 3))
+    mag = np.sqrt(mx ** 2 + my ** 2)
+    unit = magnitude_curve(apply_range(mag, lo, hi), mapping, k)
+    length = unit * (grid * 0.9)
+
+    for j in range(ny):
+        for i in range(nx):
+            L = float(length[j, i])
+            if L < min_px:
+                continue
+            m = float(mag[j, i])
+            if m < 1e-6:
+                continue
+            ox = int(i * gx + gx // 2)
+            oy = int(j * gy + gy // 2)
+            dx = float(mx[j, i]) / m * L
+            dy = float(my[j, i]) / m * L
+            v = int(np.clip(80 + unit[j, i] * 175, 0, 255))
+            cv2.arrowedLine(img, (ox, oy), (int(round(ox + dx)), int(round(oy + dy))),
+                            (v, v, v), 1, cv2.LINE_AA,
+                            tipLength=float(np.clip(6.0 / max(L, 1e-3), 0.15, 0.5)))
+    return img
+
+
 def bilateral_normals(n, strength=1.0, d_px=15, sigma_color=0.15):
     """POST-gradient filter: smooths the normal VECTORS, then renormalizes.
 

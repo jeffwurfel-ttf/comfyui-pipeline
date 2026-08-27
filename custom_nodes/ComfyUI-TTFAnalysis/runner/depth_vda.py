@@ -52,13 +52,15 @@ def transform(helpers, input_size=518):
     ])
 
 
-def plan_windows(n, win=paths.VDA_INFER_LEN, overlap=8):
+def plan_windows(n, win, overlap=8):
     """Windows of exactly `win`, striding by win-overlap.
 
-    The last window SLIDES BACK to end at n rather than being a short window:
-    the packaged path pads anything under win up to a full window anyway, so a
-    short tail costs the same either way. Sliding back turns those frames into
-    already-computed overlap instead of a second full-price window.
+    The last window SLIDES BACK to end at n rather than being a short window.
+    `win` is supplied by the caller and comes from the provider's
+    Cost.window — the chunker holds no model-specific constant. VDA needs 32
+    because its packaged path pads anything shorter up to 32, so a short tail
+    costs the same as a full window either way; that fact belongs to VDA, not
+    here.
     """
     if n <= win:
         return [(0, n, n)]
@@ -75,7 +77,7 @@ def plan_windows(n, win=paths.VDA_INFER_LEN, overlap=8):
 
 
 def stream(model, helpers, video, s0, s1, H, W, max_side, sink, tmp,
-           input_size=518, overlap=8, on_block=None, device=DEV):
+           input_size=518, overlap=8, window=32, on_block=None, device=DEV):
     """Per-shot depth into `sink` (float16) and `tmp` (float32, for normals).
 
     Windows are re-fitted to the previous one with the upstream least-squares
@@ -92,12 +94,12 @@ def stream(model, helpers, video, s0, s1, H, W, max_side, sink, tmp,
     tail = {}
     dmin, dmax = np.inf, -np.inf
     try:
-        for (a, b, _) in plan_windows(T, paths.VDA_INFER_LEN, overlap):
+        for (a, b, _) in plan_windows(T, window, overlap):
             frames = reader.window(s0 + a, s0 + b)
             assert frames is not None and len(frames), f"decode gap at {s0 + a}"
             proc = np.stack([tf({"image": f.astype(np.float32) / 255.0})["image"]
                              for f in frames])
-            pad = paths.VDA_INFER_LEN - len(proc)
+            pad = window - len(proc)
             if pad > 0:
                 proc = np.concatenate([proc, np.repeat(proc[-1:], pad, 0)])
             x = torch.from_numpy(proc).unsqueeze(0).to(device)
@@ -108,7 +110,7 @@ def stream(model, helpers, video, s0, s1, H, W, max_side, sink, tmp,
                 mode="bilinear", align_corners=True)[:, 0].cpu().numpy()
             del x
             if pad > 0:
-                d = d[:paths.VDA_INFER_LEN - pad]
+                d = d[:window - pad]
 
             # Align against EVERY already-written frame this window re-covers,
             # not just the nominal overlap: the slid-back tail window can cover
@@ -135,7 +137,7 @@ def stream(model, helpers, video, s0, s1, H, W, max_side, sink, tmp,
                 # already-stored frame must never replace the stored one
                 for i in new:
                     tail[i] = d[i - a]
-            for i in [i for i in tail if i < min(b, T) - paths.VDA_INFER_LEN]:
+            for i in [i for i in tail if i < min(b, T) - window]:
                 del tail[i]
             del d
     finally:

@@ -10,6 +10,20 @@ on the first P1 run and buried the two real ones.
 """
 import numpy as np
 
+# Display.readout_kind speaks a type vocabulary (what the array IS); the checks
+# below were written against signal names. Map one to the other in ONE place —
+# providers pass the type, and a provider passing an unmapped string would
+# otherwise silently fall through to the scalar branch and compute per-frame
+# stats over a (2,H,W) flow field as if it were a depth map.
+KIND_ALIASES = {"scalar": "scalar", "vector2": "flow", "unit3": "normals",
+                "depth": "scalar", "flow": "flow", "normals": "normals"}
+
+
+def canon(kind):
+    assert kind in KIND_ALIASES, (
+        f"unknown readout kind {kind!r}; expected one of {sorted(KIND_ALIASES)}")
+    return KIND_ALIASES[kind]
+
 
 class FrameStats:
     def __init__(self):
@@ -18,6 +32,7 @@ class FrameStats:
                            # manifest and must never be used for tests.
 
     def add(self, arr, kind):
+        kind = canon(kind)
         for fr in arr:
             if kind == "flow":
                 v = np.sqrt(fr[0].astype(np.float64) ** 2
@@ -34,6 +49,7 @@ class FrameStats:
 
 
 def flags_for(rows, kind, shape_hw=None, raw=None):
+    kind = canon(kind)
     fl = []
     means = np.array([r["mean"] for r in rows]) if rows else np.array([])
     mins = np.array([r["min"] for r in rows]) if rows else np.array([])
@@ -49,7 +65,7 @@ def flags_for(rows, kind, shape_hw=None, raw=None):
             lo_i, hi_i = (raw[i] if raw else (r["min"], r["max"]))
             if hi_i - lo_i < 1e-8:
                 fl.append(f"frame {i}: constant field (degenerate)")
-    if kind == "depth":
+    if kind == "scalar":
         if len(means) > 1:
             d = np.abs(np.diff(means)) / np.maximum(np.abs(means[:-1]), 1e-6)
             for j in np.where(d > 0.25)[0]:
