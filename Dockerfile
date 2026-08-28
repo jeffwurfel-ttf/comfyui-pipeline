@@ -54,7 +54,12 @@ RUN pip install --no-cache-dir \
 
 RUN pip install --no-cache-dir "numpy<2"
 
-RUN git clone https://github.com/comfyanonymous/ComfyUI.git /app/ComfyUI
+# ComfyUI core. Pinned to the commit the running gpu02 image was built from,
+# recovered from the container (`git -C /app/ComfyUI rev-parse HEAD`), NOT from
+# upstream HEAD. Tag context: v0.21.0-3-g428c3237.
+ARG COMFYUI_COMMIT=428c323780a7549a4da03b8d282d0064c8e24180
+RUN git clone https://github.com/comfyanonymous/ComfyUI.git /app/ComfyUI && \
+    git -C /app/ComfyUI checkout ${COMFYUI_COMMIT}
 
 WORKDIR /app/ComfyUI
 RUN pip install --no-cache-dir -r requirements.txt
@@ -65,24 +70,51 @@ RUN pip install --no-cache-dir "numpy<2"
 # ============================================================
 WORKDIR /app/ComfyUI/custom_nodes
 
+# Every SHA below was recovered from the RUNNING gpu02 container
+# (`git -C /app/ComfyUI/custom_nodes/<pack> rev-parse HEAD`) — it is the commit
+# that was ACTUALLY BUILT, not upstream HEAD. Five of these are behind upstream
+# and that is the correct state: we pin what we validated. Moving any pack
+# forward is a deliberate commit, never a side effect of a rebuild.
+#
+# All six of these packs are also VENDORED into ./custom_nodes/<pack>/ at these
+# exact SHAs, byte-verified against the container (see .dev/VENDORED_NODES.md).
+# The clone is what the image runs; the vendored tree is the reviewable copy
+# and the only correct place to author a patch. They must move together.
+
 # Core utilities
-RUN git clone https://github.com/ltdrdata/ComfyUI-Manager.git
-RUN git clone https://github.com/kijai/ComfyUI-KJNodes.git
+ARG COMFYUI_MANAGER_COMMIT=c2a33d2efcf4597aa29d9dcc87f111751e6ad587
+RUN git clone https://github.com/ltdrdata/ComfyUI-Manager.git && \
+    git -C ComfyUI-Manager checkout ${COMFYUI_MANAGER_COMMIT}
+
+ARG KJNODES_COMMIT=fca78c93f034c6e36080d64da83afe00bd5dbba6
+RUN git clone https://github.com/kijai/ComfyUI-KJNodes.git && \
+    git -C ComfyUI-KJNodes checkout ${KJNODES_COMMIT}
 
 # Video generation (WAN)
-RUN git clone https://github.com/kijai/ComfyUI-WanVideoWrapper.git
+ARG WANVIDEOWRAPPER_COMMIT=d18cdb18597f525ef8d613a0cb447080fbab8fce
+RUN git clone https://github.com/kijai/ComfyUI-WanVideoWrapper.git && \
+    git -C ComfyUI-WanVideoWrapper checkout ${WANVIDEOWRAPPER_COMMIT}
 
 # Segmentation (SAM2 — used by character swap)
-RUN git clone https://github.com/kijai/ComfyUI-segment-anything-2.git
+ARG SEGMENT_ANYTHING_2_COMMIT=0c35fff5f382803e2310103357b5e985f5437f32
+RUN git clone https://github.com/kijai/ComfyUI-segment-anything-2.git && \
+    git -C ComfyUI-segment-anything-2 checkout ${SEGMENT_ANYTHING_2_COMMIT}
 
 # Video I/O
-RUN git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git
+ARG VIDEOHELPERSUITE_COMMIT=2984ec4c4b93292421888f38db74a5e8802a8ff8
+RUN git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git && \
+    git -C ComfyUI-VideoHelperSuite checkout ${VIDEOHELPERSUITE_COMMIT}
 
 # Pose detection
-RUN git clone https://github.com/kijai/ComfyUI-WanAnimatePreprocess.git
+ARG WANANIMATEPREPROCESS_COMMIT=1a35b81a418bbba093356ad19b19bf2a76a24f4e
+RUN git clone https://github.com/kijai/ComfyUI-WanAnimatePreprocess.git && \
+    git -C ComfyUI-WanAnimatePreprocess checkout ${WANANIMATEPREPROCESS_COMMIT}
 
 # Frame Interpolation — RIFE/FILM for FPS upscaling
-RUN git clone https://github.com/Fannovel16/ComfyUI-Frame-Interpolation.git
+# (cloned here, NOT vendored — nothing in-repo patches it)
+ARG FRAME_INTERPOLATION_COMMIT=26545cc2dd95bc3d27f056016300673bdeee78f5
+RUN git clone https://github.com/Fannovel16/ComfyUI-Frame-Interpolation.git && \
+    git -C ComfyUI-Frame-Interpolation checkout ${FRAME_INTERPOLATION_COMMIT}
 
 # ============================================================
 # CUSTOM NODE — SeedVR2 Video Upscaler (Stage 1 of restoration pipeline)
@@ -111,7 +143,20 @@ COPY seedvr2_wrapper/setup_env.sh \
 RUN chmod +x /app/ComfyUI/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler/setup_env.sh
 
 # SAM 3D Objects — image to 3D mesh
-RUN wget -q "https://cdn.comfy.org/pznodes/comfyui-sam3dobjects/0.0.11/node.zip" -O /tmp/sam3d.zip && \
+#
+# NOT a git clone: a version-pinned registry zip. There is no upstream commit
+# SHA for this pack and none is invented here. The version in the URL (0.0.11)
+# IS the pin, and it is corroborated by the box — `pyproject.toml` inside the
+# unpacked tree reads version = "0.0.11".
+# The unpacked source is vendored at ./custom_nodes/comfyui-sam3dobjects/ with a
+# per-file sha256 manifest, which is this pack's reproducibility anchor in place
+# of a SHA. See .dev/VENDORED_NODES.md.
+#
+# Directory name: comfyui-sam3dobjects (lowercase). This is what the container
+# runs and what the zip unpacks to. The old git index entry spelled it
+# ComfyUI-SAM3DObjects; that name was wrong and is gone.
+ARG SAM3DOBJECTS_VERSION=0.0.11
+RUN wget -q "https://cdn.comfy.org/pznodes/comfyui-sam3dobjects/${SAM3DOBJECTS_VERSION}/node.zip" -O /tmp/sam3d.zip && \
     unzip -o /tmp/sam3d.zip -d /app/ComfyUI/custom_nodes/comfyui-sam3dobjects && \
     rm /tmp/sam3d.zip
 
@@ -123,21 +168,34 @@ RUN wget -q "https://cdn.comfy.org/pznodes/comfyui-sam3dobjects/0.0.11/node.zip"
 
 # Core motion capture: GVHMRInference, LoadGVHMRModels, LoadSMPL,
 # SMPLtoBVH, BVHViewer, SMPLViewer, SMPLCameraViewer, LoadCameraTrajectory
-RUN git clone https://github.com/PozzettiAndrea/ComfyUI-MotionCapture.git comfyui-motioncapture
+# SHAs recovered from the running container, same rule as the block above:
+# the commit that was built, not upstream HEAD. Not vendored — no in-repo patch
+# targets these.
+ARG MOTIONCAPTURE_COMMIT=e93d9cbaa98c6fe580c87dd82e50a39722df0d8e
+RUN git clone https://github.com/PozzettiAndrea/ComfyUI-MotionCapture.git comfyui-motioncapture && \
+    git -C comfyui-motioncapture checkout ${MOTIONCAPTURE_COMMIT}
 
 # SMPL parameter retargeting → FBX (HYMotionNPZToSMPLParams, HYMotionSMPLToData,
 # HYMotionRetargetFBX)
-RUN git clone https://github.com/PozzettiAndrea/ComfyUI-HyMotion.git ComfyUI-HyMotion
+ARG HYMOTION_COMMIT=4de4c2844b0f71f124cc19c5612b74b671820609
+RUN git clone https://github.com/PozzettiAndrea/ComfyUI-HyMotion.git ComfyUI-HyMotion && \
+    git -C ComfyUI-HyMotion checkout ${HYMOTION_COMMIT}
 
 # Camera intrinsics for moving-camera GVHMR variant (CameraIntrinsics node)
-RUN git clone https://github.com/PozzettiAndrea/ComfyUI-CameraPack.git comfyui-camerapack
+ARG CAMERAPACK_COMMIT=60729ceb4e37db8135a4fa720c75cf664a1aeae6
+RUN git clone https://github.com/PozzettiAndrea/ComfyUI-CameraPack.git comfyui-camerapack && \
+    git -C comfyui-camerapack checkout ${CAMERAPACK_COMMIT}
 
 # Multiband I/O for scene_generation pipeline (MultibandLoad, MultibandToMasks)
-RUN git clone https://github.com/PozzettiAndrea/ComfyUI-Multiband.git comfyui-multiband
+ARG MULTIBAND_COMMIT=121606fa1f36c11467f205f348aabc1395bd3de4
+RUN git clone https://github.com/PozzettiAndrea/ComfyUI-Multiband.git comfyui-multiband && \
+    git -C comfyui-multiband checkout ${MULTIBAND_COMMIT}
 
 # Geometry pack for scene_generation (GeomPackLoadMeshBatch,
 # GeomPackCombineMeshesBatch, GeomPackPreviewMeshVTK)
-RUN git clone https://github.com/PozzettiAndrea/ComfyUI-GeometryPack.git comfyui-geometrypack
+ARG GEOMETRYPACK_COMMIT=7aaaeb7e95d5e10d853e5c55ff1095495c0fc5df
+RUN git clone https://github.com/PozzettiAndrea/ComfyUI-GeometryPack.git comfyui-geometrypack && \
+    git -C comfyui-geometrypack checkout ${GEOMETRYPACK_COMMIT}
 
 # ============================================================
 # CUSTOM NODES — Video Inpainting
@@ -145,8 +203,10 @@ RUN git clone https://github.com/PozzettiAndrea/ComfyUI-GeometryPack.git comfyui
 # ProPainter — video inpainting with mask (ProPainterInpaint node)
 # Strip opencv from requirements.txt — conflicts with our headless install (line ~209).
 # --no-deps prevents transitive pulls too.
+ARG PROPAINTER_COMMIT=9c27d5a0a508bae3296a1886ad026d8d4139d66c
 RUN git clone https://github.com/daniabib/ComfyUI_ProPainter_Nodes \
     /app/ComfyUI/custom_nodes/ComfyUI_ProPainter_Nodes && \
+    git -C /app/ComfyUI/custom_nodes/ComfyUI_ProPainter_Nodes checkout ${PROPAINTER_COMMIT} && \
     sed -i '/opencv-python/d' /app/ComfyUI/custom_nodes/ComfyUI_ProPainter_Nodes/requirements.txt && \
     pip install --no-cache-dir --no-deps \
         -r /app/ComfyUI/custom_nodes/ComfyUI_ProPainter_Nodes/requirements.txt
@@ -299,6 +359,20 @@ RUN if [ -f /app/ComfyUI/custom_nodes/comfyui-sam3dobjects/_env/bin/pip ]; then 
 # Disable sam3d vendor cv2 shim — it shadows the real opencv-python-headless,
 # breaking any node that imports cv2 after sam3dobjects (__init__.py loads vendor
 # at module level). Renaming the dir removes it from the import lookup path.
+#
+# THIS IS THE ONLY LOCAL PATCH TO AN UPSTREAM PACK, AND IT MUST STAY HERE.
+# It is NOT redundant with vendoring. The build fetches sam3dobjects from the
+# comfy.org registry zip (line ~114) — it does NOT copy the vendored tree in —
+# so the zip always unpacks a live `vendor/cv2/` and this mv is what removes it.
+# Delete this line and the rebuilt image breaks cv2 for every node that imports
+# it after sam3dobjects.
+#
+# The vendored tree records the patch's RESULT, not its mechanism: it was staged
+# from the running container and therefore already contains
+#   custom_nodes/comfyui-sam3dobjects/vendor/cv2_disabled/
+# and no vendor/cv2/. That is the post-mv state, so the repo shows what the box
+# actually runs. `|| true` keeps the rebuild green if upstream ever drops the
+# shim; if that happens, drop this line and the vendored dir together.
 RUN mv /app/ComfyUI/custom_nodes/comfyui-sam3dobjects/vendor/cv2 \
        /app/ComfyUI/custom_nodes/comfyui-sam3dobjects/vendor/cv2_disabled || true
 
