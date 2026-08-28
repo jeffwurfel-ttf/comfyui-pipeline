@@ -81,3 +81,12 @@ custom_nodes/*/_env/
 .dev/
 .claude/
 CLAUDE.md
+
+# WanVideoWrapper: tokenizer vocab artifacts and example media.
+# Same reasoning as the weights above — the pinned clone puts them in the
+# image; git carrying 28 MB of undiffable JSON vocab buys nothing.
+custom_nodes/ComfyUI-WanVideoWrapper/configs/T5_tokenizer/tokenizer.json
+custom_nodes/ComfyUI-WanVideoWrapper/qwen/tokenizer/tokenizer.json
+custom_nodes/ComfyUI-WanVideoWrapper/qwen/tokenizer/vocab.json
+custom_nodes/ComfyUI-WanVideoWrapper/qwen/tokenizer/merges.txt
+custom_nodes/ComfyUI-WanVideoWrapper/example_workflows/example_inputs/
