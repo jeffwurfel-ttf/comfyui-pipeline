@@ -1,0 +1,51 @@
+# ComfyUI-SAM3DObjects Requirements
+# (pure Python only — GPU deps handled in install.py)
+
+hydra-core>=1.3.2
+einops-exts>=0.0.4
+roma>=1.5.1
+easydict>=1.13
+loguru>=0.7.2
+
+# 3D utilities (pure Python)
+trimesh
+open3d>=0.18.0
+point-cloud-utils>=0.29.5
+xatlas>=0.0.9
+pyvista>=0.43.0
+pymeshfix>=0.16.0
+
+# Image / processing
+opencv-python>=4.9.0
+scikit-image>=0.23.1
+imageio>=2.36.0
+
+# Model dependencies
+timm>=0.9.16
+transformers
+diffusers
+huggingface-hub
+hf_xet
+gdown>=5.2.0
+
+# Utilities
+addict
+omegaconf
+python-igraph>=1.0.0
+tqdm>=4.67.0
+psutil>=5.9.0
+
+# Core Python deps
+astor>=0.8.0
+optree>=0.11.0
+scipy>=1.11.0
+numpy>=1.24.0,<2.0
+
+# Lightning (pip-safe)
+lightning>=2.0.0
+
+# Visualization
+seaborn>=0.13.0
+matplotlib>=3.9.0
+plotly>=5.24.0
+gradio>=4.44.0
