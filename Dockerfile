@@ -229,6 +229,10 @@ RUN mkdir -p /app/ComfyUI/custom_nodes/ComfyUI-SaveEXRCompressed
 COPY custom_nodes/ComfyUI-SaveEXRCompressed/__init__.py \
      /app/ComfyUI/custom_nodes/ComfyUI-SaveEXRCompressed/__init__.py
 
+# NOTE: ComfyUI-DINOv3Embed + ComfyUI-VectorOut (Phase 6b/7) are added LATE in
+# this file (just before their venv setup) to preserve build cache for the
+# expensive main-deps + SAM3D/SeedVR2 venv layers below. See §DINOv3Embed.
+
 # ============================================================
 # PYTHON DEPENDENCIES — Main environment
 # ============================================================
@@ -410,6 +414,64 @@ sys.path.insert(0, '/app/ComfyUI/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler'); \
 import seedvr2_subprocess_node as m; \
 assert 'SeedVR2RestorationUpscale' in m.NODE_CLASS_MAPPINGS, 'wrapper: node not registered'; \
 print('[SeedVR2-build] wrapper module OK')"
+
+# ============================================================
+# DINOv3Embed (recognition embedder) + VectorOut (STRING-JSON sink) — Phase 6b/7.
+# Placed here (late) so the COPYs don't invalidate cache for the main-deps and
+# SAM3D/SeedVR2 venv layers above. DINOv3Embed's node runs in the MAIN env
+# (subprocess wrapper only); its heavy transformers/model work runs in the
+# isolated _env/ venv built just below, because the main env's transformers
+# 5.8.0 cannot load under torch 2.4.1 (D032). Weights come from the /models
+# bind-mount at runtime, not baked.
+# ============================================================
+RUN mkdir -p /app/ComfyUI/custom_nodes/ComfyUI-DINOv3Embed
+COPY custom_nodes/ComfyUI-DINOv3Embed/__init__.py \
+     /app/ComfyUI/custom_nodes/ComfyUI-DINOv3Embed/__init__.py
+COPY custom_nodes/ComfyUI-DINOv3Embed/dinov3_worker.py \
+     /app/ComfyUI/custom_nodes/ComfyUI-DINOv3Embed/dinov3_worker.py
+COPY custom_nodes/ComfyUI-DINOv3Embed/setup_env.sh \
+     /app/ComfyUI/custom_nodes/ComfyUI-DINOv3Embed/setup_env.sh
+RUN chmod +x /app/ComfyUI/custom_nodes/ComfyUI-DINOv3Embed/setup_env.sh
+
+RUN mkdir -p /app/ComfyUI/custom_nodes/ComfyUI-VectorOut
+COPY custom_nodes/ComfyUI-VectorOut/__init__.py \
+     /app/ComfyUI/custom_nodes/ComfyUI-VectorOut/__init__.py
+
+# setup_env.sh uses --system-site-packages so no torch/CUDA wheel is pulled.
+# Build-time verify is IMPORT-ONLY: no GPU and no /models bind-mount exist during
+# build, so a model load/forward would fail for reasons unrelated to correctness.
+RUN bash /app/ComfyUI/custom_nodes/ComfyUI-DINOv3Embed/setup_env.sh
+
+RUN /app/ComfyUI/custom_nodes/ComfyUI-DINOv3Embed/_env/bin/python -c "\
+import transformers; assert transformers.__version__.startswith('4.57'), f'venv: wrong transformers {transformers.__version__}'; \
+from transformers import AutoModel; \
+from transformers.models.auto.modeling_auto import MODEL_MAPPING_NAMES; \
+assert MODEL_MAPPING_NAMES.get('dinov3_vit') == 'DINOv3ViTModel', 'dinov3_vit missing from auto registry'; \
+from transformers.models.dinov3_vit import DINOv3ViTModel; \
+print(f'[DINOv3-build] venv OK: transformers={transformers.__version__} (import-only, no weights/GPU at build)')"
+
+# Verify the DINOv3 wrapper + worker import cleanly. Wrapper in MAIN python (how
+# ComfyUI loads it); worker in the VENV python (where it actually runs). Neither
+# import loads a model.
+RUN python -c "\
+import sys; \
+sys.path.insert(0, '/app/ComfyUI/custom_nodes/ComfyUI-DINOv3Embed'); \
+import __init__ as m; \
+assert 'DINOv3Embed' in m.NODE_CLASS_MAPPINGS, 'DINOv3Embed not registered'; \
+print('[DINOv3-build] wrapper module OK (main env)')"
+RUN /app/ComfyUI/custom_nodes/ComfyUI-DINOv3Embed/_env/bin/python -c "\
+import sys; \
+sys.path.insert(0, '/app/ComfyUI/custom_nodes/ComfyUI-DINOv3Embed'); \
+import dinov3_worker; \
+print('[DINOv3-build] worker module OK (venv)')"
+
+# Verify the VectorOut node registers in the MAIN python.
+RUN python -c "\
+import sys; \
+sys.path.insert(0, '/app/ComfyUI/custom_nodes/ComfyUI-VectorOut'); \
+import __init__ as m; \
+assert 'SaveVectorJSON' in m.NODE_CLASS_MAPPINGS, 'SaveVectorJSON not registered'; \
+print('[VectorOut-build] module OK')"
 
 # Final numpy pin — after ALL installs to prevent any dep from upgrading it
 RUN pip install --no-cache-dir "numpy<2"
